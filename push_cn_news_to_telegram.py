@@ -2,15 +2,14 @@ import os
 import requests
 import feedparser
 from bs4 import BeautifulSoup
-import json
 import html
 
-# 获取环境变量
+# 获取 Telegram Bot Token 和 Chat ID（建议在 GitHub Secrets 中配置）
 TG_BOT_TOKEN = os.environ.get("TG_BOT_TOKEN")
 TG_CHAT_ID = os.environ.get("TG_CHAT_ID")
 API = f"https://api.telegram.org/bot{TG_BOT_TOKEN}/sendMessage"
 
-# ✅ 抓取中国报 RSS
+# ✅ 抓取中国报 RSS（最多3条）
 def fetch_chinapress(max_items=3):
     feed_url = "https://www.chinapress.com.my/feed/"
     feed = feedparser.parse(feed_url)
@@ -21,7 +20,7 @@ def fetch_chinapress(max_items=3):
         messages.append(f"📰 <b>中国报</b>\n📌 {title}\n🔗 {link}")
     return messages
 
-# ✅ 抓取东方日报新闻列表的第一个链接
+# ✅ 抓取东方日报最新新闻（万能写法，从/news页面找第一个链接）
 def fetch_oriental():
     url = "https://www.orientaldaily.com.my/news"
     try:
@@ -29,20 +28,19 @@ def fetch_oriental():
         res.encoding = "utf-8"
         soup = BeautifulSoup(res.text, "html.parser")
 
-        a = soup.select_one("a[href^='/news/']")
-        if not a:
-            return ["❌ 东方日报抓取失败：未找到新闻链接"]
+        # 找到第一个 "/news/" 链接和标题
+        for a in soup.find_all("a", href=True):
+            href = a["href"]
+            if href.startswith("/news/") and a.get_text(strip=True):
+                title = html.escape(a.get_text(strip=True))
+                link = "https://www.orientaldaily.com.my" + href
+                return [f"📰 <b>东方日报</b>\n📌 {title}\n🔗 {link}"]
 
-        title = html.escape(a.get_text(strip=True))
-        link = a["href"]
-        if not link.startswith("http"):
-            link = "https://www.orientaldaily.com.my" + link
-
-        return [f"📰 <b>东方日报</b>\n📌 {title}\n🔗 {link}"]
+        return ["❌ 东方日报抓取失败：页面中未找到任何有效新闻链接"]
     except Exception as e:
         return [f"❌ 东方日报抓取失败：{e}"]
 
-# ✅ 推送到 Telegram
+# ✅ 发送 Telegram 消息
 def send(msg):
     payload = {
         "chat_id": TG_CHAT_ID,
@@ -54,12 +52,11 @@ def send(msg):
     print("✅ 推送成功" if res.ok else f"❌ 推送失败，状态码：{res.status_code}")
     return res.ok
 
-# ✅ 主函数：整合所有来源，发送多条
+# ✅ 主函数：收集消息并发送
 def main():
     messages = []
-    messages.extend(fetch_chinapress(max_items=3))
+    messages.extend(fetch_chinapress())
     messages.extend(fetch_oriental())
-
     for msg in messages:
         if msg:
             send(msg)

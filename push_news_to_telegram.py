@@ -1,12 +1,25 @@
 import os
 import requests
+import feedparser
 from bs4 import BeautifulSoup
+import json
 
-# Telegram Bot Token 和 Chat ID（建议放在 GitHub Secrets 中）
-TOKEN = os.environ.get("TG_BOT_TOKEN")
-CHAT_ID = os.environ.get("TG_CHAT_ID")
-API = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
+TG_BOT_TOKEN = os.environ.get("TG_BOT_TOKEN")
+TG_CHAT_ID = os.environ.get("TG_CHAT_ID")
+API = f"https://api.telegram.org/bot{TG_BOT_TOKEN}/sendMessage"
 
+# ✅ 1. 抓中国报（稳定 RSS）
+def fetch_chinapress(max_items=3):
+    feed_url = "https://www.chinapress.com.my/feed/"
+    feed = feedparser.parse(feed_url)
+    messages = []
+    for entry in feed.entries[:max_items]:
+        title = entry.title
+        link = entry.link
+        messages.append(f"📰 <b>中国报</b>\n📌 {title}\n🔗 {link}")
+    return messages
+
+# ✅ 2. 抓东方日报（网页结构化数据）
 def fetch_oriental():
     url = "https://www.orientaldaily.com.my/"
     try:
@@ -14,29 +27,45 @@ def fetch_oriental():
         res.encoding = "utf-8"
         soup = BeautifulSoup(res.text, "html.parser")
 
-        # ✅ 新选择器：第一个新闻链接
-        a = soup.select_one("a[href^='/news/']")
-        if not a or not a.get("href"):
-            raise Exception("❌ 未找到新闻链接")
-
-        title = a.get_text(strip=True)
-        link = a["href"]
-        if not link.startswith("http"):
-            link = "https://www.orientaldaily.com.my" + link
-
-        return f"📰 <b>东方日报</b>\n\n📌 {title}\n🔗 {link}"
+        scripts = soup.find_all("script", type="application/ld+json")
+        for script in scripts:
+            try:
+                data = json.loads(script.string)
+                if isinstance(data, dict) and data.get("@type") == "NewsArticle":
+                    title = data.get("headline")
+                    link = data.get("mainEntityOfPage", {}).get("@id") or data.get("url")
+                    if link and not link.startswith("http"):
+                        link = "https://www.orientaldaily.com.my" + link
+                    return [f"📰 <b>东方日报</b>\n📌 {title}\n🔗 {link}"]
+            except Exception:
+                continue
+        return []
     except Exception as e:
-        return f"❌ 获取东方日报失败: {e}"
+        return [f"❌ 东方日报抓取失败: {e}"]
 
+# ✅ 3. Telegram 发送消息
 def send(msg):
     return requests.post(API, json={
-        "chat_id": CHAT_ID,
+        "chat_id": TG_CHAT_ID,
         "text": msg,
         "parse_mode": "HTML"
     }).ok
 
+# ✅ 主函数：整合抓取 + 推送
+def main():
+    messages = []
+
+    # 抓中国报
+    messages.extend(fetch_chinapress(max_items=3))
+
+    # 抓东方日报
+    messages.extend(fetch_oriental())
+
+    # 推送每条消息
+    for msg in messages:
+        if msg:
+            res = send(msg)
+            print("✅ 推送成功" if res else "❌ 推送失败")
+
 if __name__ == "__main__":
-    news = fetch_oriental()
-    if news:
-        res = send(news)
-        print("✅ 推送成功" if res else "❌ 推送失败")
+    main()

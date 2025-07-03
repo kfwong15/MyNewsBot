@@ -1,55 +1,33 @@
+import os
 import requests
 from bs4 import BeautifulSoup
-import json
-import os
 
 TOKEN = os.environ.get("TG_BOT_TOKEN")
 CHAT_ID = os.environ.get("TG_CHAT_ID")
-PUSHED_FILE = "pushed.json"
+API_URL = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
 
-def send_telegram_message(text):
-    url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
+def fetch_sinchew():
+    url = "https://www.sinchew.com.my/"
+    try:
+        response = requests.get(url, timeout=10)
+        soup = BeautifulSoup(response.text, "html.parser")
+        headline = soup.find("h2", class_="article-title").get_text(strip=True)
+        link = soup.find("h2", class_="article-title").find("a")["href"]
+        return f"📰 【星洲日报】{headline}\n🔗 {link}"
+    except Exception as e:
+        return f"❌ 获取星洲新闻失败: {e}"
+
+def send_to_telegram(message):
     payload = {
         "chat_id": CHAT_ID,
-        "text": text,
+        "text": message,
         "parse_mode": "HTML"
     }
-    requests.post(url, data=payload)
-
-def get_sinchew_news():
-    url = "https://www.sinchew.com.my/"
-    headers = {"User-Agent": "Mozilla/5.0"}
-    res = requests.get(url, headers=headers)
-    soup = BeautifulSoup(res.text, "html.parser")
-    news = []
-    for a in soup.select("a.item-title"):
-        title = a.get_text(strip=True)
-        link = a['href']
-        if not link.startswith("http"):
-            link = "https://www.sinchew.com.my" + link
-        news.append({"title": title, "link": link})
-    return news
-
-def load_pushed():
-    if os.path.exists(PUSHED_FILE):
-        with open(PUSHED_FILE, 'r') as f:
-            return set(json.load(f))
-    return set()
-
-def save_pushed(ids):
-    with open(PUSHED_FILE, 'w') as f:
-        json.dump(list(ids), f)
-
-def main():
-    pushed_ids = load_pushed()
-    new_ids = set()
-    for item in get_sinchew_news():
-        if item["link"] not in pushed_ids:
-            message = f"📰 <b>{item['title']}</b>\n🔗 {item['link']}"
-            send_telegram_message(message)
-            print("✅ 推送：" + item["title"])
-        new_ids.add(item["link"])
-    save_pushed(new_ids)
+    response = requests.post(API_URL, json=payload)
+    return response.ok
 
 if __name__ == "__main__":
-    main()
+    news = fetch_sinchew()
+    if news:
+        success = send_to_telegram(news)
+        print("✅ 推送成功" if success else "❌ 推送失败")

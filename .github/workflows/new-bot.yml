@@ -1,9 +1,8 @@
-name: Daily News Bot
+name: News Bot
 
 on:
   schedule:
-    # 每天UTC时间0点运行（马来西亚时间早上8点）
-    - cron: '0 0 * * *'
+    - cron: '0 0 * * *'  # 每天UTC午夜运行
   workflow_dispatch:
 
 jobs:
@@ -19,9 +18,9 @@ jobs:
           python-version: '3.10'
           
       - name: Install dependencies
-        run: pip install requests beautifulsoup4
+        run: pip install requests beautifulsoup4 fake-useragent
         
-      - name: Run news bot
+      - name: Run News Bot
         env:
           TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}

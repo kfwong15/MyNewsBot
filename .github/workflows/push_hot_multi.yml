@@ -2,12 +2,13 @@ name: Push Shopee Hot Items
 
 on:
   schedule:
-    - cron: "0 2 * * *"  # 每天马来西亚时间 10AM 运行
-  workflow_dispatch:
+    - cron: "0 2 * * *"  # 每天马来西亚时间 10AM 执行
+  workflow_dispatch:      # 允许手动触发
 
 jobs:
   run:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout Repo
         uses: actions/checkout@v4
@@ -15,12 +16,12 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v4
         with:
-          python-version: 3.10  # ✅ 不要用 3.1，必须是存在的版本
+          python-version: 3.10  # ✅ ✅ ✅ 正确的版本
 
       - name: Install Dependencies
         run: pip install requests
 
-      - name: Push Shopee Hot
+      - name: Run Shopee Bot
         env:
           TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}

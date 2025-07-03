@@ -1,96 +1,125 @@
 import os
-import sys
-import time
-import logging
 import requests
-import feedparser
-import html
-from typing import List, Dict
+from bs4 import BeautifulSoup
+import time
 
-# ========== 配置 ==========
-FEEDS = [
-    {"name": "中国报", "url": "https://www.chinapress.com.my/feed/", "max_items": 3},
-    {"name": "东方日报", "url": "https://www.orientaldaily.com.my/rss", "max_items": 1},
-    # 你可以在这里添加更多 RSS 源
-]
-TELEGRAM_RETRY = 3          # Telegram 推送失败最大重试次数
-TELEGRAM_RETRY_DELAY = 2    # 重试间隔秒数
-
-# ========== 日志配置 ==========
-logging.basicConfig(
-    level=logging.INFO,
-    format='[%(asctime)s] %(levelname)s: %(message)s',
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler("news_telegram_bot.log", encoding="utf-8")
-    ]
-)
-
-# ========== 环境变量检查 ==========
+# 获取 Telegram Token 和 Chat ID
 TG_BOT_TOKEN = os.environ.get("TG_BOT_TOKEN")
 TG_CHAT_ID = os.environ.get("TG_CHAT_ID")
-if not TG_BOT_TOKEN or not TG_CHAT_ID:
-    logging.critical("环境变量 TG_BOT_TOKEN 和 TG_CHAT_ID 必须设置！")
-    sys.exit(1)
+API_URL = f"https://api.telegram.org/bot{TG_BOT_TOKEN}/sendMessage"
 
-API = f"https://api.telegram.org/bot{TG_BOT_TOKEN}/sendMessage"
+# 通用请求头，模拟真实浏览器访问
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+    "Connection": "keep-alive"
+}
 
-# ========== 抓取 RSS ==========
-def fetch_feed(feed: Dict) -> List[str]:
-    """抓取并格式化指定 RSS 源的新闻"""
-    url = feed["url"]
-    name = feed["name"]
-    max_items = feed.get("max_items", 1)
-    messages = []
+# ✅ 可靠的中国报新闻抓取
+def fetch_chinapress():
     try:
-        feed_data = feedparser.parse(url)
-        if not feed_data.entries:
-            msg = f"❌ <b>{name}</b> 抓取失败：RSS 无新闻"
-            logging.warning(msg)
-            messages.append(msg)
-        for entry in feed_data.entries[:max_items]:
-            title = html.escape(entry.title)
-            link = entry.link
-            messages.append(f"📰 <b>{name}</b>\n📌 {title}\n🔗 {link}")
+        url = "https://www.chinapress.com.my/"
+        response = requests.get(url, headers=HEADERS, timeout=10)
+        response.raise_for_status()  # 检查HTTP错误
+        
+        soup = BeautifulSoup(response.text, 'html.parser')
+        news_items = []
+        
+        # 查找最新新闻条目
+        for article in soup.select('article.post-item')[:3]:
+            title_tag = article.find('h3', class_='post-title')
+            if not title_tag:
+                continue
+                
+            title = title_tag.get_text(strip=True)
+            link = title_tag.find('a')['href']
+            
+            # 确保链接完整
+            if not link.startswith('http'):
+                link = f"https://www.chinapress.com.my{link}"
+                
+            news_items.append(f"📰 <b>中国报</b>\n📌 {title}\n🔗 {link}")
+        
+        return news_items if news_items else ["❌ 中国报抓取失败：未找到新闻内容"]
+        
     except Exception as e:
-        msg = f"❌ <b>{name}</b> 抓取失败：{e}"
-        logging.error(msg)
-        messages.append(msg)
-    return messages
+        return [f"❌ 中国报抓取失败：{str(e)}"]
 
-# ========== 推送到 Telegram ==========
-def send_telegram(msg: str) -> bool:
-    """发送消息到 Telegram，自动重试"""
-    for attempt in range(1, TELEGRAM_RETRY + 1):
-        try:
-            res = requests.post(API, json={
-                "chat_id": TG_CHAT_ID,
-                "text": msg,
-                "parse_mode": "HTML"
-            }, timeout=10)
-            if res.ok:
-                logging.info(f"推送成功: {msg[:30]}...")
-                return True
-            else:
-                logging.warning(f"推送失败({res.status_code}): {res.text}")
-        except Exception as e:
-            logging.error(f"推送异常: {e}")
-        if attempt < TELEGRAM_RETRY:
-            time.sleep(TELEGRAM_RETRY_DELAY)
-    logging.error("推送失败，已达最大重试次数。")
-    return False
+# ✅ 可靠的东方日报新闻抓取
+def fetch_oriental():
+    try:
+        url = "https://www.orientaldaily.com.my"
+        response = requests.get(url, headers=HEADERS, timeout=10)
+        response.raise_for_status()
+        
+        soup = BeautifulSoup(response.text, 'html.parser')
+        news_items = []
+        
+        # 查找头条新闻
+        top_news = soup.select_one('div.top-news')
+        if top_news:
+            title_tag = top_news.find('h1')
+            if title_tag:
+                title = title_tag.get_text(strip=True)
+                link = title_tag.find('a')['href']
+                if not link.startswith('http'):
+                    link = f"https://www.orientaldaily.com.my{link}"
+                news_items.append(f"📰 <b>东方日报</b>\n📌 {title}\n🔗 {link}")
+        
+        # 查找其他新闻
+        for article in soup.select('div.news-list')[:2]:
+            title_tag = article.find('h2')
+            if title_tag:
+                title = title_tag.get_text(strip=True)
+                link = title_tag.find('a')['href']
+                if not link.startswith('http'):
+                    link = f"https://www.orientaldaily.com.my{link}"
+                news_items.append(f"📰 <b>东方日报</b>\n📌 {title}\n🔗 {link}")
+                
+        return news_items if news_items else ["❌ 东方日报抓取失败：未找到新闻内容"]
+        
+    except Exception as e:
+        return [f"❌ 东方日报抓取失败：{str(e)}"]
 
-# ========== 主流程 ==========
+# ✅ 可靠的Telegram消息发送
+def send_telegram(message):
+    try:
+        payload = {
+            "chat_id": TG_CHAT_ID,
+            "text": message,
+            "parse_mode": "HTML",
+            "disable_web_page_preview": True
+        }
+        
+        response = requests.post(API_URL, json=payload, timeout=15)
+        response.raise_for_status()
+        
+        print(f"✅ 消息发送成功: {message[:30]}...")
+        return True
+        
+    except Exception as e:
+        print(f"❌ 消息发送失败: {str(e)}")
+        return False
+
+# ✅ 主函数：抓取 + 推送
 def main():
-    logging.info("开始抓取并推送新闻")
-    all_messages = []
-    for feed in FEEDS:
-        msgs = fetch_feed(feed)
-        all_messages.extend(msgs)
-    for msg in all_messages:
-        if msg:
-            send_telegram(msg)
-    logging.info("全部任务结束")
+    print("开始抓取新闻...")
+    
+    # 获取新闻
+    all_news = []
+    all_news.extend(fetch_chinapress())
+    all_news.extend(fetch_oriental())
+    
+    print(f"共找到 {len(all_news)} 条新闻")
+    
+    # 发送新闻
+    for news in all_news:
+        if "❌" not in news:  # 只发送成功抓取的新闻
+            send_telegram(news)
+            time.sleep(1)  # 避免发送过快被限制
+    
+    print("新闻推送完成！")
 
 if __name__ == "__main__":
     main()

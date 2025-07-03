@@ -1,27 +1,31 @@
-name: AutoPushNewsToTelegram
+name: AutoPushNews
 
 on:
   schedule:
-    - cron: '*/10 * * * *'  # 每10分钟运行一次
-  workflow_dispatch:       # 手动运行按钮
+    - cron: '*/30 * * * *'  # 每 30 分钟运行一次
+  workflow_dispatch:        # 可手动运行
+
+env:
+  TZ: Asia/Kuala_Lumpur
 
 jobs:
-  push:
+  push-news:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout repo
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - name: Set up Python
+        uses: actions/setup-python@v4
         with:
-          python-version: '3.10'
+          python-version: '3.x'
 
       - name: Install dependencies
         run: |
-          pip install requests beautifulsoup4
+          pip install -r requirements.txt
 
-      - name: Run push script
+      - name: Run news push script
         env:
           TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}

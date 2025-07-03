@@ -8,19 +8,26 @@ API_URL = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
 
 
 def fetch_sinchew():
-    url = "https://www.sinchew.com.my/"
     try:
-        response = requests.get(url, timeout=10)
+        response = requests.get("https://www.sinchew.com.my/", timeout=10, headers={
+            "User-Agent": "Mozilla/5.0"
+        })
         response.encoding = "utf-8"
-
-        # ✅ 保存 HTML 页面到本地
-        with open("sinchew.html", "w", encoding="utf-8") as f:
-            f.write(response.text)
-
         soup = BeautifulSoup(response.text, "html.parser")
-        ...
 
-
+        # 获取第一个新闻卡片
+        article = soup.select_one("div.article-item a.article-link")
+        if article:
+            title_tag = article.find("p", class_="title")
+            title = title_tag.get_text(strip=True) if title_tag else "（无标题）"
+            link = article["href"]
+            if not link.startswith("http"):
+                link = "https://www.sinchew.com.my" + link
+            return f"📰 <b>星洲日报</b>\n\n📌 {title}\n🔗 {link}"
+        else:
+            raise Exception("❌ 页面结构可能变了，找不到新闻区块")
+    except Exception as e:
+        return f"❌ 获取星洲新闻失败: {e}"
 
 
 def send_to_telegram(message):

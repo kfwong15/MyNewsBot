@@ -7,6 +7,7 @@ TOKEN = os.environ.get("TG_BOT_TOKEN")
 CHAT_ID = os.environ.get("TG_CHAT_ID")
 API_URL = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
 
+#####
 def fetch_sinchew():
     url = "https://www.sinchew.com.my/"
     try:
@@ -14,19 +15,30 @@ def fetch_sinchew():
         response.encoding = "utf-8"
         soup = BeautifulSoup(response.text, "html.parser")
 
-        # ✅ 更稳健方式：遍历所有 a 标签，找出带 /news/ 且有标题的
-        for a in soup.find_all("a", href=True):
-            if "/news/" in a["href"] and a.find("h2"):
-                title = a.find("h2").get_text(strip=True)
-                link = a["href"]
-                if not link.startswith("http"):
-                    link = "https://www.sinchew.com.my" + link
-                return f"📰 <b>星洲日报</b>\n\n📌 {title}\n🔗 {link}"
+        # 查找第一个首页新闻（使用 class 名更精准）
+        article = soup.select_one("div.article-card a[href*='/news/']")
+        if not article:
+            raise Exception("未找到有效新闻链接")
 
-        raise Exception("未找到有效新闻链接")
+        # 新闻标题
+        title_tag = article.select_one(".title")
+        if not title_tag:
+            title = article.get("title") or "（无标题）"
+        else:
+            title = title_tag.get_text(strip=True)
+
+        # 新闻链接
+        link = article["href"]
+        if not link.startswith("http"):
+            link = "https://www.sinchew.com.my" + link
+
+        return f"📰 <b>星洲日报</b>\n\n📌 {title}\n🔗 {link}"
+
     except Exception as e:
         return f"❌ 获取星洲新闻失败: {e}"
 
+
+#####
 def send_to_telegram(message):
     payload = {
         "chat_id": CHAT_ID,

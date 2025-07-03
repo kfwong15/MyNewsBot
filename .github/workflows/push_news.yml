@@ -2,7 +2,7 @@ name: AutoPushNews
 
 on:
   schedule:
-    - cron: '*/30 * * * *'  # 每30分钟运行一次
+    - cron: '*/30 * * * *'
   workflow_dispatch:
 
 env:
@@ -15,9 +15,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v4
         with:
-          python-version: '3.10'  # ✅ 这是关键修复点
+          python-version: '3.10'
       - run: pip install -r requirements.txt
-      - run: python push_news_to_telegram.py
+      - run: python push_cn_news_to_telegram.py
         env:
           TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}

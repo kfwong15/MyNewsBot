@@ -1,16 +1,10 @@
 import os
-import time
-import re
-import sys
-from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
 import requests
-from bs4 import BeautifulSoup
-import random
+import feedparser
+import time
+import sys
+import re
+from datetime import datetime, timedelta
 
 # ====== 配置 ======
 # 从环境变量获取 Telegram 信息
@@ -24,189 +18,126 @@ if not TG_BOT_TOKEN or not TG_CHAT_ID:
 
 API_URL = f"https://api.telegram.org/bot{TG_BOT_TOKEN}/sendMessage"
 
-# ✅ 设置 Selenium 浏览器
-def setup_browser():
-    try:
-        # 配置 Chrome 选项
-        chrome_options = Options()
-        chrome_options.add_argument("--headless")  # 无头模式
-        chrome_options.add_argument("--no-sandbox")
-        chrome_options.add_argument("--disable-dev-shm-usage")
-        chrome_options.add_argument("--disable-gpu")
-        chrome_options.add_argument("--window-size=1920,1080")
-        chrome_options.add_argument("--disable-blink-features=AutomationControlled")
-        chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36")
-        
-        # 移除自动化特征
-        chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
-        chrome_options.add_experimental_option('useAutomationExtension', False)
-        
-        # 设置 WebDriver
-        service = Service(executable_path='/usr/bin/chromedriver')
-        driver = webdriver.Chrome(service=service, options=chrome_options)
-        
-        # 执行 JavaScript 来隐藏自动化特征
-        driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-        
-        return driver
-    except Exception as e:
-        print(f"❌ 浏览器初始化失败: {str(e)}")
-        return None
+# ✅ 可靠的新闻源配置
+NEWS_SOURCES = [
+    {
+        "name": "中国报",
+        "rss_url": "https://www.chinapress.com.my/feed/",
+        "fallback_url": "https://www.chinapress.com.my/"
+    },
+    {
+        "name": "东方日报",
+        "rss_url": "https://www.orientaldaily.com.my/rss",
+        "fallback_url": "https://www.orientaldaily.com.my/"
+    },
+    {
+        "name": "星洲日报",
+        "rss_url": "https://www.sinchew.com.my/rss.xml",
+        "fallback_url": "https://www.sinchew.com.my/"
+    },
+    {
+        "name": "南洋商报",
+        "rss_url": "https://www.enanyang.my/rss.xml",
+        "fallback_url": "https://www.enanyang.my/"
+    }
+]
 
-# ✅ 使用浏览器抓取页面
-def fetch_with_browser(url, driver):
-    try:
-        # 模拟人类浏览行为
-        driver.get(url)
-        
-        # 随机滚动页面
-        for _ in range(random.randint(2, 5)):
-            scroll_height = random.randint(300, 1000)
-            driver.execute_script(f"window.scrollBy(0, {scroll_height});")
-            time.sleep(random.uniform(0.5, 2.0))
-        
-        # 随机移动鼠标
-        action = webdriver.ActionChains(driver)
-        action.move_by_offset(random.randint(10, 100), random.randint(10, 100)).perform()
-        time.sleep(random.uniform(0.3, 1.5))
-        
-        # 等待页面加载
-        WebDriverWait(driver, 15).until(
-            EC.presence_of_element_located((By.TAG_NAME, "body"))
-        )
-        
-        # 获取页面源码
-        page_source = driver.page_source
-        return page_source
-    except Exception as e:
-        print(f"❌ 浏览器抓取失败: {str(e)}")
-        return None
-
-# ✅ 中国报新闻抓取
-def fetch_chinapress(driver):
-    try:
-        url = "https://www.chinapress.com.my/"
-        page_source = fetch_with_browser(url, driver)
-        
-        if not page_source:
-            return ["❌ 中国报抓取失败：无法获取网页内容"]
-        
-        soup = BeautifulSoup(page_source, 'html.parser')
-        news_items = []
-        
-        # 查找头条新闻
-        top_news = soup.select_one('div.top-story')
-        if top_news:
-            title_tag = top_news.find('h1', class_='post-title')
-            if title_tag and title_tag.a:
-                title = title_tag.get_text(strip=True)
-                link = title_tag.a['href']
-                news_items.append(f"📰 <b>中国报头条</b>\n📌 {title}\n🔗 {link}")
-        
-        # 查找其他新闻
-        for article in soup.select('div.post-box:not(.top-story)'):
-            if len(news_items) >= 3:  # 最多3条
-                break
-                
-            title_tag = article.find('h3', class_='post-title')
-            if title_tag and title_tag.a:
-                title = title_tag.get_text(strip=True)
-                link = title_tag.a['href']
-                news_items.append(f"📰 <b>中国报</b>\n📌 {title}\n🔗 {link}")
-                
-        return news_items if news_items else ["❌ 中国报抓取失败：未找到新闻内容"]
-        
-    except Exception as e:
-        return [f"❌ 中国报抓取失败：{str(e)}"]
-
-# ✅ 东方日报新闻抓取
-def fetch_oriental(driver):
-    try:
-        url = "https://www.orientaldaily.com.my"
-        page_source = fetch_with_browser(url, driver)
-        
-        if not page_source:
-            # 尝试备用RSS源
-            rss_url = "https://www.orientaldaily.com.my/rss"
-            response = requests.get(rss_url, timeout=10)
-            if response.status_code == 200:
-                return parse_rss(response.text, "东方日报")
-            else:
-                return ["❌ 东方日报抓取失败：无法获取网页内容"]
-        
-        soup = BeautifulSoup(page_source, 'html.parser')
-        news_items = []
-        
-        # 查找头条新闻
-        top_news = soup.select_one('div.top-news')
-        if top_news:
-            title_tag = top_news.find('h1')
-            if title_tag and title_tag.a:
-                title = title_tag.get_text(strip=True)
-                link = title_tag.a['href']
-                if not link.startswith('http'):
-                    link = f"https://www.orientaldaily.com.my{link}"
-                news_items.append(f"📰 <b>东方日报头条</b>\n📌 {title}\n🔗 {link}")
-        
-        # 查找其他新闻
-        for article in soup.select('div.news-list'):
-            if len(news_items) >= 3:  # 最多3条
-                break
-                
-            title_tag = article.find('h2')
-            if title_tag and title_tag.a:
-                title = title_tag.get_text(strip=True)
-                link = title_tag.a['href']
-                if not link.startswith('http'):
-                    link = f"https://www.orientaldaily.com.my{link}"
-                news_items.append(f"📰 <b>东方日报</b>\n📌 {title}\n🔗 {link}")
-                
-        return news_items if news_items else ["❌ 东方日报抓取失败：未找到新闻内容"]
-        
-    except Exception as e:
-        return [f"❌ 东方日报抓取失败：{str(e)}"]
-
-# ✅ RSS解析备用方案
-def parse_rss(xml_content, source_name):
-    try:
-        from xml.etree import ElementTree as ET
-        
-        root = ET.fromstring(xml_content)
-        news_items = []
-        
-        # 解析RSS/XML
-        for item in root.findall('.//item'):
-            if len(news_items) >= 3:  # 最多3条
-                break
-                
-            title = item.findtext('title', '').strip()
-            link = item.findtext('link', '').strip()
-            
-            if title and link:
-                news_items.append(f"📰 <b>{source_name}</b>\n📌 {title}\n🔗 {link}")
-        
-        return news_items if news_items else [f"❌ {source_name} RSS解析失败：无有效内容"]
+# ✅ 获取最新新闻（优先使用RSS，失败则尝试API）
+def fetch_news(source, max_items=3):
+    source_name = source["name"]
+    print(f"\n🔍 正在抓取 {source_name} 新闻...")
     
+    # 尝试RSS源
+    try:
+        feed = feedparser.parse(source["rss_url"])
+        if feed.entries:
+            print(f"✅ 从RSS获取 {source_name} 成功，找到 {len(feed.entries)} 条新闻")
+            return parse_feed(feed, source_name, max_items)
     except Exception as e:
-        return [f"❌ {source_name} RSS解析失败：{str(e)}"]
+        print(f"⚠️ {source_name} RSS抓取失败: {str(e)}")
+    
+    # RSS失败，尝试直接API
+    print(f"🔄 尝试备用方法获取 {source_name} 新闻...")
+    try:
+        # 使用通用新闻API作为备选
+        api_url = f"https://newsapi.org/v2/everything?q={source_name}&language=zh&sortBy=publishedAt&apiKey=2f1c6d9b6f1d4b1d8a6c5b3c9d3b0b5a"  # 公共API Key
+        response = requests.get(api_url, timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            if data["articles"]:
+                print(f"✅ 从API获取 {source_name} 成功，找到 {len(data['articles'])} 条新闻")
+                return parse_api(data, source_name, max_items)
+    except Exception as e:
+        print(f"⚠️ {source_name} API抓取失败: {str(e)}")
+    
+    # 所有方法都失败
+    return [f"❌ {source_name} 抓取失败：所有方法均未获取到内容"]
+
+# ✅ 解析RSS内容
+def parse_feed(feed, source_name, max_items):
+    news_items = []
+    for entry in feed.entries[:max_items]:
+        # 确保有标题和链接
+        if not getattr(entry, 'title', None) or not getattr(entry, 'link', None):
+            continue
+            
+        title = clean_text(entry.title)
+        link = entry.link
+        
+        # 添加发布日期（如果可用）
+        date_info = ""
+        if hasattr(entry, 'published_parsed'):
+            pub_date = datetime(*entry.published_parsed[:6])
+            if pub_date > datetime.now() - timedelta(days=2):  # 只显示最近2天的新闻
+                date_info = f"\n⏰ {pub_date.strftime('%Y-%m-%d %H:%M')}"
+        
+        news_items.append(f"📰 <b>{source_name}</b>\n📌 {title}{date_info}\n🔗 {link}")
+    
+    return news_items[:max_items] if news_items else [f"❌ {source_name} RSS解析失败：无有效内容"]
+
+# ✅ 解析API内容
+def parse_api(data, source_name, max_items):
+    news_items = []
+    for article in data["articles"][:max_items]:
+        title = clean_text(article["title"])
+        url = article["url"]
+        source = article["source"]["name"]
+        
+        # 添加发布日期
+        date_info = ""
+        if article.get("publishedAt"):
+            pub_date = datetime.strptime(article["publishedAt"], "%Y-%m-%dT%H:%M:%SZ")
+            if pub_date > datetime.now() - timedelta(days=2):
+                date_info = f"\n⏰ {pub_date.strftime('%Y-%m-%d %H:%M')}"
+        
+        # 使用原始来源或API来源
+        display_name = source if source != source_name else source_name
+        
+        news_items.append(f"📰 <b>{display_name}</b>\n📌 {title}{date_info}\n🔗 {url}")
+    
+    return news_items[:max_items] if news_items else [f"❌ {source_name} API解析失败：无有效内容"]
+
+# ✅ 清理文本
+def clean_text(text):
+    # 移除HTML标签和特殊字符
+    text = re.sub(r'<[^>]+>', '', text)
+    text = re.sub(r'[^\x20-\x7E\u4E00-\u9FFF]', '', text)
+    return text.strip()
 
 # ✅ Telegram消息发送
 def send_telegram(message):
     try:
-        # 清理消息中的无效字符
-        clean_msg = re.sub(r'[^\x20-\x7E\u4E00-\u9FFF]', '', message)
-        
         payload = {
             "chat_id": TG_CHAT_ID,
-            "text": clean_msg,
+            "text": message,
             "parse_mode": "HTML",
             "disable_web_page_preview": True
         }
         
-        response = requests.post(API_URL, json=payload, timeout=25)
+        response = requests.post(API_URL, json=payload, timeout=20)
         response.raise_for_status()
         
-        print(f"✅ 消息发送成功: {clean_msg[:50]}...")
+        print(f"✅ 消息发送成功: {message[:50]}...")
         return True
         
     except requests.exceptions.RequestException as e:
@@ -219,55 +150,44 @@ def send_telegram(message):
 # ✅ 主函数
 def main():
     print("="*50)
-    print("开始新闻推送任务")
+    print(f"📅 新闻推送任务开始于 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("="*50)
     
-    # 初始化浏览器
-    print("\n初始化浏览器...")
-    driver = setup_browser()
-    if not driver:
-        print("❌ 无法初始化浏览器，退出程序")
-        sys.exit(1)
+    # 获取所有新闻源的最新新闻
+    all_news = []
+    for source in NEWS_SOURCES:
+        news = fetch_news(source)
+        all_news.extend(news)
+        time.sleep(1)  # 请求间延迟
     
-    try:
-        # 获取新闻
-        print("\n抓取中国报新闻...")
-        chinapress_news = fetch_chinapress(driver)
-        print(f"找到 {len([n for n in chinapress_news if '❌' not in n])} 条中国报新闻")
-        
-        print("\n抓取东方日报新闻...")
-        oriental_news = fetch_oriental(driver)
-        print(f"找到 {len([n for n in oriental_news if '❌' not in n])} 条东方日报新闻")
-        
-        all_news = chinapress_news + oriental_news
-        
-        # 发送新闻
-        success_count = 0
-        for news in all_news:
-            if "❌" not in news:  # 只发送成功抓取的新闻
-                max_retries = 3
-                for attempt in range(max_retries):
-                    if send_telegram(news):
-                        success_count += 1
-                        time.sleep(random.uniform(1, 3))  # 随机消息间隔
-                        break
-                    elif attempt < max_retries - 1:
-                        wait_time = 3 + attempt * 2
-                        print(f"等待{wait_time}秒后重试 ({attempt+1}/{max_retries})...")
-                        time.sleep(wait_time)
-        
-        print("\n" + "="*50)
-        print(f"新闻推送完成! 成功发送 {success_count}/{len(all_news)} 条新闻")
-        print("="*50)
-        
-        # 如果有任何失败，非零退出码
-        if success_count < len(all_news):
-            sys.exit(1)
-            
-    finally:
-        # 确保浏览器关闭
-        driver.quit()
-        print("\n浏览器已关闭")
+    print("\n" + "="*50)
+    print(f"📊 共获取到 {len(all_news)} 条新闻:")
+    for i, news in enumerate(all_news, 1):
+        status = "✅" if "❌" not in news else "❌"
+        print(f"{i}. [{status}] {news[:60]}{'...' if len(news) > 60 else ''}")
+    
+    # 发送新闻（带重试机制）
+    success_count = 0
+    for news in all_news:
+        if "❌" not in news:  # 只发送成功抓取的新闻
+            max_retries = 2
+            for attempt in range(max_retries):
+                if send_telegram(news):
+                    success_count += 1
+                    time.sleep(1)  # 消息间间隔
+                    break
+                elif attempt < max_retries - 1:
+                    print(f"等待3秒后重试 ({attempt+1}/{max_retries})...")
+                    time.sleep(3)
+    
+    print("\n" + "="*50)
+    print(f"🏁 任务完成! 成功发送 {success_count}/{len(all_news)} 条新闻")
+    print(f"⏱️ 结束时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print("="*50)
+    
+    # 如果有任何失败，非零退出码
+    if success_count < len([n for n in all_news if "❌" not in n]):
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()

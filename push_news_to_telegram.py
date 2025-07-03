@@ -2,18 +2,12 @@ import os
 import requests
 from bs4 import BeautifulSoup
 
-TOKEN = os.environ.get("TG_BOT_TOKEN")
-CHAT_ID = os.environ.get("TG_CHAT_ID")
-API_URL = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
-
-
-import os, requests
-from bs4 import BeautifulSoup
-
+# 获取 Telegram Bot Token 和 Chat ID（需放在环境变量中或 GitHub Secrets）
 TOKEN = os.environ.get("TG_BOT_TOKEN")
 CHAT_ID = os.environ.get("TG_CHAT_ID")
 API = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
 
+# 东方日报抓取函数
 def fetch_oriental():
     url = "https://www.orientaldaily.com.my/"
     try:
@@ -21,7 +15,7 @@ def fetch_oriental():
         res.encoding = "utf-8"
         soup = BeautifulSoup(res.text, "html.parser")
 
-        # 找新闻列表里第一个含链接的 <a> 标签
+        # 选择第一个新闻链接
         a = soup.select_one("div.clearfix ul li a[href*='/news/']")
         if not a:
             raise Exception("未找到新闻链接")
@@ -32,24 +26,21 @@ def fetch_oriental():
             link = "https://www.orientaldaily.com.my" + link
 
         return f"📰 <b>东方日报</b>\n\n📌 {title}\n🔗 {link}"
+
     except Exception as e:
         return f"❌ 获取东方日报失败: {e}"
 
+# 发送到 Telegram 群组或频道
 def send(msg):
-    return requests.post(API, json={"chat_id":CHAT_ID, "text":msg, "parse_mode":"HTML"}).ok
+    return requests.post(API, json={
+        "chat_id": CHAT_ID,
+        "text": msg,
+        "parse_mode": "HTML"
+    }).ok
 
+# 主入口
 if __name__ == "__main__":
     news = fetch_oriental()
     if news:
         res = send(news)
         print("✅ 推送成功" if res else "❌ 推送失败")
-def send_to_telegram(message):
-    payload = {"chat_id": CHAT_ID, "text": message, "parse_mode": "HTML"}
-    r = requests.post(API_URL, json=payload)
-    return r.ok
-
-if __name__ == "__main__":
-    news = fetch_sinchew()
-    if news:
-        ok = send_to_telegram(news)
-        print("✅ 推送成功" if ok else "❌ 推送失败")

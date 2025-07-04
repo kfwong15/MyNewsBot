@@ -1,9 +1,9 @@
-name: News Bot
+name: Google Malaysia News Bot
 
 on:
   schedule:
-    # 每30分钟运行一次
-    - cron: '*/30 * * * *'
+    # 每5小时运行一次 (UTC时间)
+    - cron: '0 */5 * * *'
   workflow_dispatch:
 
 jobs:
@@ -21,8 +21,8 @@ jobs:
       - name: Install dependencies
         run: pip install requests beautifulsoup4
           
-      - name: Run News Bot
+      - name: Run Google News Bot
         env:
           TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
-        run: python news_bot.py
+        run: python google_news_bot.py

@@ -3,8 +3,9 @@ import requests
 import time
 import sys
 import random
-from bs4 import BeautifulSoup
+import json
 from datetime import datetime
+from bs4 import BeautifulSoup
 
 # ====== 配置 ======
 TG_BOT_TOKEN = os.environ.get("TG_BOT_TOKEN")
@@ -16,19 +17,17 @@ if not TG_BOT_TOKEN or not TG_CHAT_ID:
 
 API_URL = f"https://api.telegram.org/bot{TG_BOT_TOKEN}/sendMessage"
 
-# Google新闻马来西亚版URL
-GOOGLE_NEWS_URL = "https://news.google.com/home?hl=en-MY&gl=MY&ceid=MY:en"
+# Google新闻API URL (更可靠的方法)
+GOOGLE_NEWS_API_URL = "https://news.google.com/rss?hl=en-MY&gl=MY&ceid=MY:en"
 
-# 多个新闻分类URL
-NEWS_CATEGORIES = [
-    "https://news.google.com/topics/CAAqJggKIiBDQkFTRWdvSUwyMHZNRFZxYUdjU0FtVnVHZ0pWVXlnQVAB?hl=en-MY&gl=MY&ceid=MY%3Aen",  # 头条
-    "https://news.google.com/topics/CAAqIQgKIhtDQkFTRGdvSUwyMHZNRFp4WkRNU0FtVnVLQUFQAQ?hl=en-MY&gl=MY&ceid=MY%3Aen",  # 马来西亚
-    "https://news.google.com/topics/CAAqJggKIiBDQkFTRWdvSUwyMHZNRGx1YlY4U0FtVnVHZ0pWVXlnQVAB?hl=en-MY&gl=MY&ceid=MY%3Aen",  # 世界
-    "https://news.google.com/topics/CAAqJggKIiBDQkFTRWdvSUwyMHZNRGx6TVdZU0FtVnVHZ0pWVXlnQVAB?hl=en-MY&gl=MY&ceid=MY%3Aen",  # 商业
-    "https://news.google.com/topics/CAAqJggKIiBDQkFTRWdvSUwyMHZNRGRqTVhZU0FtVnVHZ0pWVXlnQVAB?hl=en-MY&gl=MY&ceid=MY%3Aen",  # 科技
-    "https://news.google.com/topics/CAAqJggKIiBDQkFTRWdvSUwyMHZNREpxYW5RU0FtVnVHZ0pWVXlnQVAB?hl=en-MY&gl=MY&ceid=MY%3Aen",  # 娱乐
-    "https://news.google.com/topics/CAAqJggKIiBDQkFTRWdvSUwyMHZNRFp1ZEdvU0FtVnVHZ0pWVXlnQVAB?hl=en-MY&gl=MY&ceid=MY%3Aen"   # 体育
-]
+# 直接解析替代方案
+NEWS_SOURCES = {
+    "MalaysiaKini": "https://www.malaysiakini.com/news",
+    "The Star": "https://www.thestar.com.my/news",
+    "New Straits Times": "https://www.nst.com.my/news",
+    "Malay Mail": "https://www.malaymail.com/news/malaysia",
+    "Free Malaysia Today": "https://www.freemalaysiatoday.com/category/nation/"
+}
 
 # 请求头列表
 USER_AGENTS = [
@@ -47,70 +46,116 @@ def get_headers():
         "Connection": "keep-alive"
     }
 
-def fetch_google_news(max_news=50):
+def fetch_google_news_api(max_news=50):
+    """使用Google RSS API获取新闻"""
+    try:
+        print("🔍 使用Google RSS API获取新闻...")
+        response = requests.get(GOOGLE_NEWS_API_URL, headers=get_headers(), timeout=15)
+        response.raise_for_status()
+        
+        soup = BeautifulSoup(response.content, 'xml')  # 注意使用xml解析器
+        items = soup.find_all('item')[:max_news]
+        
+        news_items = []
+        for item in items:
+            title = item.title.text if item.title else "无标题"
+            link = item.link.text if item.link else "#"
+            pub_date = item.pubDate.text if item.pubDate else ""
+            source = item.source.text if item.source else "未知来源"
+            
+            news_item = f"📰 <b>{title}</b>\n" \
+                       f"🏷️ 来源: {source}\n" \
+                       f"⏰ 时间: {pub_date}\n" \
+                       f"🔗 {link}"
+            news_items.append(news_item)
+        
+        return news_items
+    
+    except Exception as e:
+        print(f"❌ Google RSS API请求失败: {str(e)}")
+        return []
+
+def fetch_direct_news_sources(max_news=50):
+    """直接抓取马来西亚新闻网站"""
+    print("🔍 直接抓取马来西亚新闻网站...")
     all_news = []
-    seen_links = set()  # 用于去重
+    sources = list(NEWS_SOURCES.items())
+    random.shuffle(sources)  # 随机打乱顺序
     
-    print(f"🔍 开始抓取Google马来西亚新闻，目标数量: {max_news}")
-    
-    # 随机打乱分类顺序，避免模式化访问
-    random.shuffle(NEWS_CATEGORIES)
-    
-    for category_url in NEWS_CATEGORIES:
+    for source_name, url in sources:
         if len(all_news) >= max_news:
             break
             
         try:
-            print(f"⏳ 抓取分类: {category_url.split('/')[-1].split('?')[0]}")
-            response = requests.get(category_url, headers=get_headers(), timeout=15)
+            print(f"⏳ 抓取 {source_name}...")
+            response = requests.get(url, headers=get_headers(), timeout=15)
             response.raise_for_status()
             
             soup = BeautifulSoup(response.text, 'html.parser')
-            articles = soup.select('article.IBr9hb')
+            articles = []
+            
+            # 针对不同网站使用不同的选择器
+            if source_name == "MalaysiaKini":
+                articles = soup.select('h3.title')[:10]  # 取前10条
+            elif source_name == "The Star":
+                articles = soup.select('div.story-card a')[:10]
+            elif source_name == "New Straits Times":
+                articles = soup.select('h5.card-title a')[:10]
+            elif source_name == "Malay Mail":
+                articles = soup.select('h4.card-title a')[:10]
+            elif source_name == "Free Malaysia Today":
+                articles = soup.select('h3.entry-title a')[:10]
             
             for article in articles:
                 if len(all_news) >= max_news:
                     break
                     
-                title_tag = article.select_one('h4')
-                source_tag = article.select_one('.vr1PYe')
-                time_tag = article.select_one('time')
-                link = article.find('a')['href']
+                title = article.get_text(strip=True)
+                link = article.get('href', '')
                 
-                if not title_tag or not link:
-                    continue
+                # 确保链接完整
+                if link and not link.startswith('http'):
+                    if source_name == "The Star":
+                        link = f"https://www.thestar.com.my{link}"
+                    elif source_name == "New Straits Times":
+                        link = f"https://www.nst.com.my{link}"
                 
-                # 补全链接
-                if link.startswith('./'):
-                    full_link = f"https://news.google.com{link[1:]}"
-                else:
-                    full_link = link
-                
-                # 去重检查
-                if full_link in seen_links:
-                    continue
-                seen_links.add(full_link)
-                
-                title = title_tag.get_text(strip=True)
-                source = source_tag.get_text(strip=True) if source_tag else "未知来源"
-                time_text = time_tag['datetime'] if time_tag else ""
-                
-                news_item = f"📰 <b>{title}</b>\n" \
-                           f"🏷️ 来源: {source}\n" \
-                           f"⏰ 时间: {time_text}\n" \
-                           f"🔗 {full_link}"
-                all_news.append(news_item)
-                
-                # 添加随机延迟
-                time.sleep(random.uniform(0.1, 0.3))
+                if title and link:
+                    news_item = f"📰 <b>{title}</b>\n" \
+                               f"🏷️ 来源: {source_name}\n" \
+                               f"🔗 {link}"
+                    all_news.append(news_item)
             
-            # 分类间延迟
-            time.sleep(random.uniform(1, 3))
+            time.sleep(random.uniform(1, 2))  # 网站间延迟
             
         except Exception as e:
-            print(f"⚠️ 分类抓取失败: {str(e)}")
+            print(f"⚠️ {source_name} 抓取失败: {str(e)}")
     
-    return all_news[:max_news]
+    return all_news
+
+def fetch_news(max_news=50):
+    """主抓取函数，尝试多种方法"""
+    print(f"🎯 目标抓取 {max_news} 条新闻")
+    
+    # 首先尝试Google RSS API
+    news_items = fetch_google_news_api(max_news)
+    
+    # 如果API方法失败或数量不足，使用直接抓取
+    if len(news_items) < max_news:
+        needed = max_news - len(news_items)
+        direct_news = fetch_direct_news_sources(needed)
+        news_items.extend(direct_news)
+    
+    # 如果仍然没有足够新闻，添加备用新闻
+    if not news_items:
+        print("⚠️ 所有方法均失败，使用备用新闻")
+        news_items = [
+            "📢 今日新闻抓取遇到问题，请稍后重试",
+            "📰 <b>马来西亚最新新闻</b>\n🏷️ 来源: 系统通知\n🔗 https://www.thestar.com.my",
+            "📰 <b>查看马来西亚新闻</b>\n🏷️ 来源: 系统通知\n🔗 https://www.nst.com.my"
+        ]
+    
+    return news_items[:max_news]
 
 def send_telegram(message):
     try:
@@ -131,16 +176,12 @@ def send_telegram(message):
 def main():
     print("="*50)
     start_time = datetime.now()
-    print(f"📅 Google马来西亚新闻推送任务开始 {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"📅 马来西亚新闻推送任务开始 {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
     print("="*50)
     
     # 获取30-50条新闻
     target_count = random.randint(30, 50)
-    news_items = fetch_google_news(target_count)
-    
-    if not news_items:
-        print("❌ 未找到任何新闻，发送通知")
-        news_items = ["📢 今日未能获取马来西亚新闻，请稍后重试"]
+    news_items = fetch_news(target_count)
     
     print(f"\n📊 共找到 {len(news_items)} 条新闻，准备发送...")
     
@@ -153,6 +194,8 @@ def main():
             # 随机延迟，避免发送过快
             delay = random.uniform(0.5, 2.0)
             time.sleep(delay)
+        else:
+            print(f"⚠️ 发送失败 {index}/{len(news_items)}")
     
     end_time = datetime.now()
     duration = end_time - start_time
@@ -168,8 +211,7 @@ def main():
              f"⏰ 结束时间: {end_time.strftime('%Y-%m-%d %H:%M:%S')}\n" \
              f"⏱️ 总耗时: {duration.total_seconds():.1f}秒\n" \
              f"📰 目标数量: {target_count}\n" \
-             f"✅ 成功发送: {success_count}\n" \
-             f"🔁 下次运行: 5小时后"
+             f"✅ 成功发送: {success_count}"
     
     send_telegram(report)
     

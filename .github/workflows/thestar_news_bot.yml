@@ -1,9 +1,9 @@
-name: TheStar News Bot
+name: TheStar News Bot with DeepSeek AI
 
 on:
   schedule:
-    - cron: '0 */5 * * *'  # Run every 5 hours
-  workflow_dispatch:       # Allow manual triggers
+    - cron: '0 */5 * * *'  # 每5小时运行一次
+  workflow_dispatch:       # 允许手动触发
 
 jobs:
   crawl-and-send:
@@ -13,6 +13,7 @@ jobs:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+      OPENAI_API_BASE: https://api.deepseek.com/v1
       GITHUB_ACTIONS: 'true'
     
     steps:

@@ -5,14 +5,14 @@ from dotenv import load_dotenv
 import requests
 from bs4 import BeautifulSoup
 
-# Load environment variables
+# 加载环境变量
 load_dotenv()
 
-# Configure logging
+# 配置日志
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger('ai_assistant')
 
-# Configure OpenAI client
+# 配置DeepSeek客户端
 def get_ai_client():
     return openai.OpenAI(
         api_key=os.getenv('OPENAI_API_KEY'),
@@ -20,13 +20,13 @@ def get_ai_client():
     )
 
 def ask_ai(question, model="deepseek-chat", max_tokens=1024):
-    """Ask AI a question"""
+    """向DeepSeek AI提问"""
     try:
         client = get_ai_client()
         response = client.chat.completions.create(
             model=model,
             messages=[
-                {"role": "system", "content": "You are a professional, friendly AI assistant. Respond in Chinese."},
+                {"role": "system", "content": "你是一个专业、友好的中文AI助手，专门回答马来西亚相关新闻和问题。"},
                 {"role": "user", "content": question}
             ],
             max_tokens=max_tokens,
@@ -35,29 +35,29 @@ def ask_ai(question, model="deepseek-chat", max_tokens=1024):
         
         return response.choices[0].message.content
     except Exception as e:
-        logger.error(f"AI request failed: {e}", exc_info=True)
-        return "⚠️ Unable to process your request, please try again later"
+        logger.error(f"AI请求失败: {e}", exc_info=True)
+        return "⚠️ 暂时无法处理您的请求，请稍后再试"
 
 def summarize_webpage(url, model="deepseek-chat", max_tokens=512):
-    """Summarize webpage content"""
+    """总结网页内容"""
     try:
-        # Fetch webpage content
-        response = requests.get(url, timeout=15)
+        # 获取网页内容
+        response = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
         soup = BeautifulSoup(response.content, 'html.parser')
         
-        # Extract main content - adjust based on site structure
-        content_elements = soup.select('article p')
-        content = " ".join([p.text.strip() for p in content_elements[:20]])[:10000]  # Limit length
+        # 提取主要内容 - 根据网站结构调整
+        content_elements = soup.select('article p, .article-body p, .story-content p')
+        content = " ".join([p.text.strip() for p in content_elements[:20]])[:10000]  # 限制长度
         
-        # Create summary prompt
+        # 创建总结提示
         prompt = f"请用中文总结以下文章的主要内容，不超过200字:\n{content}"
         
-        # Get summary from AI
+        # 获取AI总结
         client = get_ai_client()
         response = client.chat.completions.create(
             model=model,
             messages=[
-                {"role": "system", "content": "You are a professional editor."},
+                {"role": "system", "content": "你是一个专业编辑，擅长总结新闻内容。"},
                 {"role": "user", "content": prompt}
             ],
             max_tokens=max_tokens,
@@ -66,36 +66,36 @@ def summarize_webpage(url, model="deepseek-chat", max_tokens=512):
         
         return response.choices[0].message.content
     except Exception as e:
-        logger.error(f"Failed to summarize article: {e}", exc_info=True)
-        return "⚠️ Unable to summarize this article"
+        logger.error(f"总结文章失败: {e}", exc_info=True)
+        return "⚠️ 无法总结此文章内容"
 
-def translate_text(text, target_language="Chinese", model="deepseek-chat"):
-    """Translate text to target language"""
+def translate_text(text, target_language="中文", model="deepseek-chat"):
+    """翻译文本到目标语言"""
     try:
         client = get_ai_client()
         response = client.chat.completions.create(
             model=model,
             messages=[
-                {"role": "system", "content": f"You are a professional translator. Translate the following text to {target_language}."},
+                {"role": "system", "content": f"你是一个专业翻译，将以下文本翻译成{target_language}，保持专业术语准确。"},
                 {"role": "user", "content": text}
             ],
             temperature=0.3
         )
         return response.choices[0].message.content
     except Exception as e:
-        logger.error(f"Translation failed: {e}", exc_info=True)
-        return "⚠️ Translation failed"
+        logger.error(f"翻译失败: {e}", exc_info=True)
+        return "⚠️ 翻译时出错"
 
 if __name__ == "__main__":
-    # Test AI functions
+    # 测试AI功能
     question = "马来西亚今天有什么重要新闻？"
-    print("Question:", question)
-    print("Answer:", ask_ai(question))
+    print("提问:", question)
+    print("回答:", ask_ai(question))
     
-    # Test summarization
+    # 测试文章总结
     test_url = "https://www.thestar.com.my/news/nation"
-    print("\nSummary:", summarize_webpage(test_url))
+    print("\n总结:", summarize_webpage(test_url))
     
-    # Test translation
-    text = "Hello, how are you today?"
-    print("\nTranslation:", translate_text(text))
+    # 测试翻译
+    text = "Good morning, how are you today?"
+    print("\n翻译:", translate_text(text))

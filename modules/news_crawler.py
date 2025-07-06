@@ -7,11 +7,11 @@ import re
 import sqlite3
 import os
 
-# Configure logging
+# 配置日志
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger('news_crawler')
 
-# News category URLs
+# 新闻分类URL
 NEWS_CATEGORIES = {
     'latest': 'https://www.thestar.com.my/news',
     'nation': 'https://www.thestar.com.my/news/nation',
@@ -23,7 +23,7 @@ NEWS_CATEGORIES = {
     'lifestyle': 'https://www.thestar.com.my/lifestyle'
 }
 
-USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36'
 HEADERS = {'User-Agent': USER_AGENT}
 
 class NewsDatabase:
@@ -45,26 +45,27 @@ class NewsDatabase:
             self.conn.execute("INSERT OR IGNORE INTO sent_news (link) VALUES (?)", (link,))
             self.conn.commit()
         except sqlite3.IntegrityError:
-            pass  # Ignore duplicate inserts
+            pass  # 忽略重复插入
     
     def cleanup_old_entries(self, days=7):
-        """Remove entries older than specified days"""
+        """移除超过指定天数的条目"""
         self.conn.execute("DELETE FROM sent_news WHERE sent_time < datetime('now', ?)", (f'-{days} days',))
         self.conn.commit()
 
 def fetch_news():
-    """Fetch news from TheStar"""
+    """从TheStar抓取新闻"""
     db = NewsDatabase()
     all_news = []
     
     for category, url in NEWS_CATEGORIES.items():
         try:
-            logger.info(f"Fetching category: {category}")
+            logger.info(f"抓取分类: {category}")
             response = requests.get(url, headers=HEADERS, timeout=15)
+            response.raise_for_status()
             soup = BeautifulSoup(response.content, 'html.parser')
             
-            # Select articles - adjust selector based on actual site structure
-            articles = soup.select('div.timeline-item')[:20]  # Limit to 20 per category
+            # 根据实际网站结构调整选择器
+            articles = soup.select('div.timeline-item')[:20]  # 每类最多20条
             
             for article in articles:
                 try:
@@ -77,7 +78,7 @@ def fetch_news():
                     if link and not link.startswith('http'):
                         link = f'https://www.thestar.com.my{link}'
                     
-                    # Skip duplicates
+                    # 跳过重复
                     if db.is_duplicate(link):
                         continue
                     
@@ -90,7 +91,7 @@ def fetch_news():
                     time_elem = article.select_one('div.timestamp, time')
                     time_str = time_elem.text.strip() if time_elem else datetime.now().strftime('%Y-%m-%d')
                     
-                    # Clean time format
+                    # 清理时间格式
                     time_str = re.sub(r'\s+', ' ', time_str)
                     
                     all_news.append({
@@ -102,17 +103,17 @@ def fetch_news():
                         'category': category
                     })
                 except Exception as e:
-                    logger.error(f"Error parsing article: {e}", exc_info=True)
+                    logger.error(f"解析文章失败: {e}", exc_info=True)
         except Exception as e:
-            logger.error(f"Error fetching category {category}: {e}", exc_info=True)
+            logger.error(f"抓取分类 {category} 失败: {e}", exc_info=True)
     
-    # Clean up old entries
+    # 清理旧条目
     db.cleanup_old_entries()
     
     return all_news
 
 def select_random_news(news_list, min_news=30, max_news=50):
-    """Select random news items"""
+    """随机选择指定数量的新闻"""
     if not news_list:
         return []
     
@@ -120,20 +121,20 @@ def select_random_news(news_list, min_news=30, max_news=50):
     return random.sample(news_list, num_news)
 
 def format_news_message(news):
-    """Format news for Telegram"""
+    """格式化新闻为Telegram消息"""
     return (
         f"🔹 *{news['title']}*\n"
         f"⏰ {news['time']}\n"
         f"{news['summary']}\n"
-        f"[Read more]({news['link']})"
+        f"[阅读全文]({news['link']})"
     )
 
 if __name__ == "__main__":
-    # Test crawler
+    # 测试爬虫
     news = fetch_news()
-    print(f"Fetched {len(news)} news items")
+    print(f"抓取到 {len(news)} 条新闻")
     for i, item in enumerate(news[:3], 1):
-        print(f"\n--- News {i} ---")
-        print(f"Title: {item['title']}")
-        print(f"Category: {item['category']}")
-        print(f"Link: {item['link']}")
+        print(f"\n--- 新闻 {i} ---")
+        print(f"标题: {item['title']}")
+        print(f"分类: {item['category']}")
+        print(f"链接: {item['link']}")

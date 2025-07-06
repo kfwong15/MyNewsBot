@@ -5,3 +5,4 @@ __pycache__/
 news.db
 venv/
 .DS_Store
+config.py

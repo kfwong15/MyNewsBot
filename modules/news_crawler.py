@@ -119,16 +119,42 @@ def fetch_category_news(session, category, url, db):
         # 设置代理
         proxies = get_proxy()
         
-        # 发送请求
-        response = session.get(url, timeout=15, proxies=proxies)
-        logger.info(f"响应状态: {response.status_code}")
+        # 尝试多种URL变体
+        urls_to_try = [url]
         
-        # 处理重定向
-        if response.history:
-            logger.info(f"请求被重定向至: {response.url}")
+        # 添加URL变体
+        if not url.endswith('/'):
+            urls_to_try.append(url + '/')
+        if url.endswith('/'):
+            urls_to_try.append(url[:-1])
         
-        # 检查状态码
-        response.raise_for_status()
+        # 特定分类的备用URL
+        if category == 'politics':
+            urls_to_try.append('https://www.thestar.com.my/news/nation/politics')
+        
+        success = False
+        for try_url in urls_to_try:
+            try:
+                logger.info(f"尝试URL: {try_url}")
+                response = session.get(try_url, timeout=15, proxies=proxies)
+                
+                # 处理重定向
+                if response.history:
+                    logger.info(f"请求被重定向至: {response.url}")
+                
+                # 检查状态码
+                if response.status_code == 200:
+                    url = try_url  # 使用有效的URL
+                    success = True
+                    break
+                else:
+                    logger.warning(f"URL {try_url} 返回状态码: {response.status_code}")
+            except Exception as e:
+                logger.warning(f"尝试URL {try_url} 失败: {str(e)}")
+        
+        if not success:
+            logger.error(f"所有URL尝试失败，跳过分类 {category}")
+            return []
         
         # 解析HTML
         soup = BeautifulSoup(response.content, 'html.parser')
@@ -295,12 +321,6 @@ def fetch_category_news(session, category, url, db):
     except requests.exceptions.HTTPError as e:
         status_code = e.response.status_code if e.response else "未知"
         logger.error(f"HTTP错误 ({status_code}): {e}")
-        
-        # 对于政治分类使用备用URL
-        if status_code == 404 and "politics" in category:
-            logger.warning("尝试使用政治分类备用URL")
-            return fetch_category_news(session, category, "https://www.thestar.com.my/news/nation/politics", db)
-        
         return []
     
     except Exception as e:

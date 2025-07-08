@@ -57,7 +57,7 @@ def summarize_webpage(url, model="deepseek-chat", max_tokens=512):
         response = client.chat.completions.create(
             model=model,
             messages=[
-                {"role": "system", "content": "你是一个专业编辑，擅长总结新闻内容。"},
+                {"role": "system", "content": "你是一个专业编辑，擅长总结文章内容。"},
                 {"role": "user", "content": prompt}
             ],
             max_tokens=max_tokens,

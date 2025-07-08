@@ -159,70 +159,135 @@ def fetch_category_news(session, category, url, db):
             news_links = soup.select('a[href*="/news/"]')
             if news_links:
                 logger.info(f"找到 {len(news_links)} 个新闻链接")
-                # 获取链接的父容器作为文章元素
-                articles = [link.find_parent('div') for link in news_links]
-                articles = [a for a in articles if a is not None][:20]
-        
-        if not articles:
-            logger.warning(f"分类 {category} 未找到任何文章")
-            return []
+                
+                # 改进的备用解析方法
+                for link_elem in news_links:
+                    try:
+                        # 直接使用链接元素解析
+                        title = link_elem.get_text(strip=True)
+                        if not title or len(title) < 10:  # 过滤无效标题
+                            continue
+                        
+                        link = link_elem.get('href', '')
+                        if link and not link.startswith('http'):
+                            if link.startswith('//'):
+                                link = f'https:{link}'
+                            else:
+                                link = f'https://www.thestar.com.my{link}'
+                        
+                        # 跳过重复
+                        if db.is_duplicate(link):
+                            continue
+                        
+                        # 尝试在链接元素附近查找图片
+                        img_elem = link_elem.find_previous('img') or link_elem.find_next('img')
+                        img_url = img_elem.get('src', '') if img_elem else ''
+                        if img_url and img_url.startswith('//'):
+                            img_url = f'https:{img_url}'
+                        elif img_url and img_url.startswith('/'):
+                            img_url = f'https://www.thestar.com.my{img_url}'
+                        
+                        # 尝试在链接元素附近查找摘要和时间
+                        parent = link_elem.find_parent('div')
+                        summary_elem = None
+                        time_elem = None
+                        
+                        if parent:
+                            # 在父元素内查找摘要
+                            summary_elem = parent.select_one('p, .summary, .description, .excerpt')
+                            if not summary_elem:
+                                # 查找兄弟元素
+                                next_elem = parent.find_next_sibling()
+                                if next_elem and next_elem.name == 'p':
+                                    summary_elem = next_elem
+                            
+                            # 在父元素内查找时间
+                            time_elem = parent.select_one('div.timestamp, time, .date, .publish-date')
+                        
+                        summary = summary_elem.get_text(strip=True) if summary_elem else ""
+                        
+                        time_str = time_elem.get_text(strip=True) if time_elem else datetime.now().strftime('%Y-%m-%d')
+                        
+                        # 清理时间格式
+                        time_str = re.sub(r'\s+', ' ', time_str)
+                        
+                        # 添加到结果列表
+                        news_items.append({
+                            'title': title,
+                            'link': link,
+                            'img_url': img_url,
+                            'summary': summary,
+                            'time': time_str,
+                            'category': category
+                        })
+                        
+                        # 标记为已发送
+                        db.mark_as_sent(link)
+                        
+                        # 限制每类新闻数量
+                        if len(news_items) >= 20:
+                            break
+                            
+                    except Exception as e:
+                        logger.error(f"解析备用链接失败: {e}", exc_info=True)
         
         # 解析每篇文章
-        for article in articles:
-            try:
-                # 尝试多种选择器找到标题
-                title_elem = article.select_one('h2 a, h3 a, .headline a, .title a, a.headline')
-                if not title_elem:
-                    continue
-                
-                title = title_elem.get_text(strip=True)
-                link = title_elem.get('href', '')
-                
-                # 处理相对URL
-                if link and not link.startswith('http'):
-                    if link.startswith('//'):
-                        link = f'https:{link}'
-                    else:
-                        link = f'https://www.thestar.com.my{link}'
-                
-                # 跳过重复
-                if db.is_duplicate(link):
-                    continue
-                
-                # 尝试多种选择器找到图片
-                img_elem = article.select_one('img, .image img, .thumbnail img')
-                img_url = img_elem.get('src', '') if img_elem else ''
-                if img_url and img_url.startswith('//'):
-                    img_url = f'https:{img_url}'
-                elif img_url and img_url.startswith('/'):
-                    img_url = f'https://www.thestar.com.my{img_url}'
-                
-                # 尝试多种选择器找到摘要
-                summary_elem = article.select_one('p, .summary, .description, .excerpt')
-                summary = summary_elem.get_text(strip=True) if summary_elem else ""
-                
-                # 尝试多种选择器找到时间
-                time_elem = article.select_one('div.timestamp, time, .date, .publish-date')
-                time_str = time_elem.get_text(strip=True) if time_elem else datetime.now().strftime('%Y-%m-%d')
-                
-                # 清理时间格式
-                time_str = re.sub(r'\s+', ' ', time_str)
-                
-                # 添加到结果列表
-                news_items.append({
-                    'title': title,
-                    'link': link,
-                    'img_url': img_url,
-                    'summary': summary,
-                    'time': time_str,
-                    'category': category
-                })
-                
-                # 标记为已发送
-                db.mark_as_sent(link)
-                
-            except Exception as e:
-                logger.error(f"解析文章失败: {e}", exc_info=True)
+        if articles:
+            for article in articles:
+                try:
+                    # 尝试多种选择器找到标题
+                    title_elem = article.select_one('h2 a, h3 a, .headline a, .title a, a.headline')
+                    if not title_elem:
+                        continue
+                    
+                    title = title_elem.get_text(strip=True)
+                    link = title_elem.get('href', '')
+                    
+                    # 处理相对URL
+                    if link and not link.startswith('http'):
+                        if link.startswith('//'):
+                            link = f'https:{link}'
+                        else:
+                            link = f'https://www.thestar.com.my{link}'
+                    
+                    # 跳过重复
+                    if db.is_duplicate(link):
+                        continue
+                    
+                    # 尝试多种选择器找到图片
+                    img_elem = article.select_one('img, .image img, .thumbnail img')
+                    img_url = img_elem.get('src', '') if img_elem else ''
+                    if img_url and img_url.startswith('//'):
+                        img_url = f'https:{img_url}'
+                    elif img_url and img_url.startswith('/'):
+                        img_url = f'https://www.thestar.com.my{img_url}'
+                    
+                    # 尝试多种选择器找到摘要
+                    summary_elem = article.select_one('p, .summary, .description, .excerpt')
+                    summary = summary_elem.get_text(strip=True) if summary_elem else ""
+                    
+                    # 尝试多种选择器找到时间
+                    time_elem = article.select_one('div.timestamp, time, .date, .publish-date')
+                    time_str = time_elem.get_text(strip=True) if time_elem else datetime.now().strftime('%Y-%m-%d')
+                    
+                    # 清理时间格式
+                    time_str = re.sub(r'\s+', ' ', time_str)
+                    
+                    # 添加到结果列表
+                    news_items.append({
+                        'title': title,
+                        'link': link,
+                        'img_url': img_url,
+                        'summary': summary,
+                        'time': time_str,
+                        'category': category
+                    })
+                    
+                    # 标记为已发送
+                    db.mark_as_sent(link)
+                    
+                except Exception as e:
+                    logger.error(f"解析文章失败: {e}", exc_info=True)
         
         logger.info(f"成功抓取 {len(news_items)} 条 {category} 新闻")
         return news_items
@@ -292,9 +357,24 @@ def select_random_news(news_list, min_news=30, max_news=50):
         logger.warning("新闻列表为空，无法选择")
         return []
     
-    num_news = random.randint(min_news, min(max_news, len(news_list)))
+    total_news = len(news_list)
+    
+    # 调整最小值和最大值
+    min_news = min(min_news, total_news)
+    max_news = min(max_news, total_news)
+    
+    # 确保最小值不超过最大值
+    if min_news > max_news:
+        min_news = max_news
+    
+    # 随机选择新闻数量
+    if min_news == max_news:
+        num_news = min_news
+    else:
+        num_news = random.randint(min_news, max_news)
+    
     selected = random.sample(news_list, num_news)
-    logger.info(f"从 {len(news_list)} 条新闻中随机选择了 {num_news} 条")
+    logger.info(f"从 {total_news} 条新闻中随机选择了 {num_news} 条")
     return selected
 
 def format_news_message(news):

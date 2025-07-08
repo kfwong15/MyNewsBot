@@ -2,9 +2,10 @@ import os
 import asyncio
 import logging
 from dotenv import load_dotenv
-from modules import telegram_bot, news_crawler
+from modules import news_crawler
 from modules.telegram_bot import setup_handlers, send_news_to_telegram, send_telegram_message
 from telegram.ext import Application
+from datetime import datetime
 
 # 加载环境变量
 load_dotenv()
@@ -59,20 +60,32 @@ async def github_actions_trigger():
         logger.info(f"随机选择 {selected_count} 条新闻进行推送")
         
         # 3. 推送到Telegram
+        sent_count = 0
         if selected_news:
-            await send_news_to_telegram(selected_news)
-            logger.info("新闻推送完成")
+            sent_count = await send_news_to_telegram(selected_news)
+            logger.info(f"成功推送 {sent_count} 条新闻")
         
-        # 4. 发送成功通知
+        # 4. 发送状态通知
         duration = (datetime.now() - start_time).total_seconds()
         details = (
             f"• 抓取分类: {len(news_crawler.NEWS_CATEGORIES)}\n"
             f"• 获取新闻: {news_count} 条\n"
-            f"• 推送新闻: {selected_count} 条\n"
+            f"• 推送新闻: {sent_count} 条\n"
             f"• 耗时: {duration:.2f} 秒"
         )
         
-        status = "success" if news_count >= 20 else "partial_success"
+        if news_count == 0:
+            status = "error"
+            details += "\n\n⚠️ 未抓取到任何新闻，请检查爬虫"
+        elif news_count < 20:
+            status = "warning"
+            details += f"\n\n⚠️ 只抓取到少量新闻 ({news_count} 条)"
+        elif sent_count < selected_count:
+            status = "partial_success"
+            details += f"\n\n⚠️ 部分新闻推送失败 ({sent_count}/{selected_count})"
+        else:
+            status = "success"
+        
         await send_status_notification(status, details)
         
     except Exception as e:
@@ -90,9 +103,12 @@ def main():
     if missing_vars:
         logger.error(f"缺少必需的环境变量: {', '.join(missing_vars)}")
         # 尝试发送错误通知
-        asyncio.run(send_telegram_message(
-            f"❌ 启动失败: 缺少环境变量 {', '.join(missing_vars)}"
-        ))
+        try:
+            asyncio.run(send_telegram_message(
+                f"❌ 启动失败: 缺少环境变量 {', '.join(missing_vars)}"
+            ))
+        except:
+            pass
         return
     
     # 判断运行模式
@@ -105,7 +121,7 @@ def main():
     else:
         # 启动Telegram Bot
         application = Application.builder().token(TG_BOT_TOKEN).build()
-        telegram_bot.setup_handlers(application)
+        setup_handlers(application)
         
         logger.info("DeepSeek新闻助手正在运行...")
         application.run_polling()

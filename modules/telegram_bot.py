@@ -204,8 +204,28 @@ async def send_news_to_telegram(news_list):
             for news in news_items:
                 try:
                     message = news_crawler.format_news_message(news)
+                    logger.info(f"准备发送新闻: {news['title'][:50]}...")
                     
+                    # 检查图片URL是否有效
+                    img_url_valid = False
                     if news.get('img_url'):
+                        try:
+                            # 简单检查图片URL格式
+                            if news['img_url'].startswith('http'):
+                                # 快速HEAD请求检查
+                                response = requests.head(news['img_url'], timeout=5)
+                                if response.status_code == 200:
+                                    img_url_valid = True
+                                    logger.debug(f"图片URL有效: {news['img_url']}")
+                                else:
+                                    logger.warning(f"图片URL无效 (状态码 {response.status_code}): {news['img_url']}")
+                            else:
+                                logger.warning(f"图片URL格式无效: {news['img_url']}")
+                        except Exception as img_e:
+                            logger.warning(f"图片URL验证失败: {img_e}")
+                    
+                    if img_url_valid:
+                        logger.info(f"发送带图片的新闻: {news['title'][:50]}...")
                         await bot.send_photo(
                             chat_id=TG_CHAT_ID,
                             photo=news['img_url'],
@@ -213,6 +233,7 @@ async def send_news_to_telegram(news_list):
                             parse_mode='Markdown'
                         )
                     else:
+                        logger.info(f"发送纯文本新闻: {news['title'][:50]}...")
                         await bot.send_message(
                             chat_id=TG_CHAT_ID,
                             text=message,
@@ -220,10 +241,22 @@ async def send_news_to_telegram(news_list):
                         )
                     
                     sent_count += 1
-                    # 避免发送过快
-                    await asyncio.sleep(1.5)
+                    # 增加发送间隔避免限制
+                    await asyncio.sleep(3)
                 except Exception as e:
                     logger.error(f"发送新闻失败: {e}", exc_info=True)
+                    # 尝试发送纯文本作为后备
+                    try:
+                        logger.info("尝试发送纯文本作为后备")
+                        simple_message = f"*{news['title']}*\n{news['link']}"
+                        await bot.send_message(
+                            chat_id=TG_CHAT_ID,
+                            text=simple_message,
+                            parse_mode='Markdown'
+                        )
+                        sent_count += 1
+                    except Exception as fallback_e:
+                        logger.error(f"后备发送也失败: {fallback_e}")
         
         logger.info(f"成功发送 {sent_count}/{len(news_list)} 条新闻")
         return sent_count

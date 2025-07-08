@@ -1,80 +1,45 @@
-import os
-import logging
-import telegram
-from telegram.error import TelegramError, ChatMigrated
-from dotenv import load_dotenv
-
-# 加载 .env 文件
-load_dotenv()
-
-# 读取环境变量
-TG_BOT_TOKEN = os.getenv('TG_BOT_TOKEN')
-TG_CHAT_ID = os.getenv('TG_CHAT_ID')  # 初始 chat_id
-
-# 配置日志
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger("telegram_bot")
-
-# 初始化 bot
-bot = telegram.Bot(token=TG_BOT_TOKEN)
-
-def escape_markdown(text):
-    """转义 Markdown 特殊字符"""
-    if not text:
-        return ""
-    for char in ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']:
-        text = text.replace(char, f'\\{char}')
-    return text
-
-def format_news_message(news):
-    """格式化单条新闻为 Telegram Markdown 消息"""
-    title = escape_markdown(news.get('title', '无标题'))
-    summary = escape_markdown(news.get('summary', ''))
-    time_str = escape_markdown(news.get('time', ''))
-    link = news.get('link', '#')
-    return (
-        f"🔹 *{title}*\n"
-        f"⏰ {time_str}\n"
-        f"{summary}\n"
-        f"[阅读全文]({link})"
-    )
-
-def send_news_batch(news_items, title="📰 今日新闻更新"):
-    """分批发送多条新闻消息到 Telegram"""
-    global TG_CHAT_ID  # 允许更新 chat_id 变量（处理群迁移）
-
+# 修改 send_telegram_message 函数
+async def send_telegram_message(message, parse_mode='Markdown'):
+    """发送文本消息到 Telegram"""
+    if not TG_BOT_TOKEN or not TG_CHAT_ID:
+        logger.error("无法发送消息: TG_BOT_TOKEN 或 TG_CHAT_ID 未设置")
+        return False
+    
     try:
-        # 先发送标题
-        bot.send_message(chat_id=TG_CHAT_ID, text=title, parse_mode='Markdown')
-
-        for news in news_items:
-            message = format_news_message(news)
+        bot = Bot(token=TG_BOT_TOKEN)
+        await bot.send_message(
+            chat_id=TG_CHAT_ID,
+            text=message,
+            parse_mode=parse_mode
+        )
+        return True
+    except Exception as e:
+        logger.error(f"发送Telegram消息失败: {e}", exc_info=True)
+        
+        # 处理群组迁移错误
+        if "Group migrated to supergroup" in str(e):
             try:
-                bot.send_message(
-                    chat_id=TG_CHAT_ID,
-                    text=message,
-                    parse_mode='Markdown',
-                    disable_web_page_preview=False
-                )
-            except TelegramError as e:
-                logger.error(f"发送单条新闻失败: {e}")
-
-    except ChatMigrated as e:
-        # 处理群迁移错误，更新 chat_id 并重发
-        new_chat_id = e.new_chat_id
-        logger.warning(f"群组迁移，新的 chat_id 为: {new_chat_id}")
-        TG_CHAT_ID = new_chat_id
-
-        try:
-            bot.send_message(chat_id=TG_CHAT_ID, text=title, parse_mode='Markdown')
-            for news in news_items:
-                message = format_news_message(news)
-                try:
-                    bot.send_message(chat_id=TG_CHAT_ID, text=message, parse_mode='Markdown')
-                except TelegramError as ex:
-                    logger.error(f"发送失败: {ex}")
-        except TelegramError as ex:
-            logger.error(f"群迁移后发送标题失败: {ex}")
-
-    except TelegramError as e:
-        logger.error(f"Telegram 发送失败: {e}")
+                # 尝试从错误信息中提取新群组ID
+                error_str = str(e)
+                start_idx = error_str.find("New chat id: ") + len("New chat id: ")
+                end_idx = error_str.find("\n", start_idx) if "\n" in error_str else len(error_str)
+                new_chat_id = error_str[start_idx:end_idx].strip()
+                
+                if new_chat_id:
+                    logger.error(f"检测到群组迁移，新群组ID: {new_chat_id}")
+                    # 更新环境变量（仅限当前进程）
+                    os.environ['TG_CHAT_ID'] = new_chat_id
+                    global TG_CHAT_ID
+                    TG_CHAT_ID = new_chat_id
+                    
+                    # 重试发送
+                    await bot.send_message(
+                        chat_id=new_chat_id,
+                        text=message,
+                        parse_mode=parse_mode
+                    )
+                    return True
+            except Exception as inner_e:
+                logger.error(f"处理群组迁移失败: {inner_e}", exc_info=True)
+        
+        return False

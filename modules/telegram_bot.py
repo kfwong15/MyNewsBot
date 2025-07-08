@@ -26,6 +26,9 @@ TG_CHAT_ID = os.getenv('TG_CHAT_ID')
 
 async def send_telegram_message(message, parse_mode='Markdown'):
     """发送文本消息到 Telegram"""
+    # 声明全局变量
+    global TG_CHAT_ID
+    
     if not TG_BOT_TOKEN or not TG_CHAT_ID:
         logger.error("无法发送消息: TG_BOT_TOKEN 或 TG_CHAT_ID 未设置")
         return False
@@ -54,8 +57,7 @@ async def send_telegram_message(message, parse_mode='Markdown'):
                     logger.error(f"检测到群组迁移，新群组ID: {new_chat_id}")
                     # 更新环境变量（仅限当前进程）
                     os.environ['TG_CHAT_ID'] = new_chat_id
-                    global TG_CHAT_ID
-                    TG_CHAT_ID = new_chat_id
+                    TG_CHAT_ID = new_chat_id  # 更新全局变量
                     
                     # 重试发送
                     await bot.send_message(
@@ -172,6 +174,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def send_news_to_telegram(news_list):
     """将新闻推送到Telegram"""
+    # 声明全局变量
+    global TG_CHAT_ID
+    
     if not news_list:
         logger.warning("没有新闻需要发送")
         return 0

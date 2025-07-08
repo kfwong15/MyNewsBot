@@ -77,9 +77,9 @@ async def github_actions_trigger():
         if news_count == 0:
             status = "error"
             details += "\n\n⚠️ 未抓取到任何新闻，请检查爬虫"
-        elif news_count < 20:
+        elif news_count < 10:
             status = "warning"
-            details += f"\n\n⚠️ 只抓取到少量新闻 ({news_count} 条)"
+            details += f"\n\n⚠️ 只抓取到少量新闻 ({news_count} 条)，可能需要检查网站结构"
         elif sent_count < selected_count:
             status = "partial_success"
             details += f"\n\n⚠️ 部分新闻推送失败 ({sent_count}/{selected_count})"

@@ -60,10 +60,23 @@ async def github_actions_trigger():
         logger.info(f"随机选择 {selected_count} 条新闻进行推送")
         
         # 3. 推送到Telegram
+        logger.info(f"准备推送 {selected_count} 条新闻到 Telegram")
         sent_count = 0
         if selected_news:
             sent_count = await send_news_to_telegram(selected_news)
             logger.info(f"成功推送 {sent_count} 条新闻")
+        
+        # 如果没有发送任何新闻
+        if sent_count == 0 and selected_news:
+            logger.error("严重错误：有新闻但未能发送任何一条")
+            # 尝试发送至少一条作为测试
+            try:
+                test_news = selected_news[0]
+                test_message = f"测试消息: {test_news['title']}\n{test_news['link']}"
+                await send_telegram_message(test_message)
+                logger.info("测试消息发送成功")
+            except Exception as test_e:
+                logger.error(f"测试消息发送失败: {test_e}")
         
         # 4. 发送状态通知
         duration = (datetime.now() - start_time).total_seconds()

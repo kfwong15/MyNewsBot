@@ -1,17 +1,12 @@
-# modules/news_crawler.py
-
 import logging
 import requests
 import xml.etree.ElementTree as ET
+from bs4 import BeautifulSoup
 
 logger = logging.getLogger('news_crawler')
 
-# Google News “Malaysia” 话题 RSS，包含当天最新当地新闻
-RSS_FEED = (
-    "https://news.google.com/rss/topics/"
-    "CAAqIggKIhxDQkFTRHdvSkwyMHZNRGx3Yld0MkVnSmxiaWdBUAE"
-    "?hl=en-MY&gl=MY&ceid=MY:en"
-)
+# Google 新闻（简体中文）RSS
+RSS_FEED = "https://news.google.com/rss?hl=zh-CN&gl=CN&ceid=CN:zh-Hans"
 MIN_COUNT = 10
 
 HEADERS = {
@@ -24,11 +19,7 @@ HEADERS = {
 
 def fetch_news() -> list[dict]:
     """
-    抓取 Google News Malaysia RSS，返回最新 MIN_COUNT 条新闻：
-    - title: 新闻标题
-    - link: 原始文章链接
-    - image: RSS 中的缩略图或 None
-    - content: RSS 提供的摘要
+    抓取 Google 新闻 RSS（中文），返回清洗后的标题、内容、图片、链接。
     """
     try:
         resp = requests.get(RSS_FEED, headers=HEADERS, timeout=10)
@@ -40,7 +31,6 @@ def fetch_news() -> list[dict]:
 
     news = []
     seen = set()
-    # Google News RSS 里 <item> 多媒体标签在 media:thumbnail 或 media:content
     ns = {'media': 'http://search.yahoo.com/mrss/'}
 
     for item in root.findall('.//item'):
@@ -59,8 +49,10 @@ def fetch_news() -> list[dict]:
             if mcont is not None and mcont.attrib.get('url'):
                 img = mcont.attrib['url']
 
-        # 摘要
-        content = item.findtext('description', '').strip()
+        # 内容清洗
+        raw_desc = item.findtext('description', '').strip()
+        soup = BeautifulSoup(raw_desc, 'html.parser')
+        content = soup.get_text(separator=' ', strip=True)
 
         news.append({
             "title":   title,
@@ -72,7 +64,7 @@ def fetch_news() -> list[dict]:
         if len(news) >= MIN_COUNT:
             break
 
-    logger.info(f"✅ Google News RSS 抓到 {len(news)} 条新闻")
+    logger.info(f"✅ Google 中文新闻抓到 {len(news)} 条")
     return news
 
 def select_random_news(news_list: list[dict], count: int = 10) -> list[dict]:

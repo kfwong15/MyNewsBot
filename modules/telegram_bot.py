@@ -1,11 +1,9 @@
-# modules/telegram_bot.py
-
 import os
 import logging
 import asyncio
 import html
 from dotenv import load_dotenv
-from telegram import Bot, Update
+from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, ContextTypes
 
 load_dotenv()
@@ -38,21 +36,29 @@ async def send_news_to_telegram(news_list: list) -> int:
     for item in news_list:
         title   = html.escape(item.get('title', ''))
         content = html.escape(item.get('content') or '')
-        link    = html.escape(item.get('link', ''))
-        caption = f"{title}\n\n{content}\n\n{link}"
+        link    = item.get('link', '')
+        image   = item.get('image')
+
+        caption = f"{title}\n\n{content}"
 
         try:
-            if item.get('image'):
+            if image:
+                # 推送图片 + 跳转按钮
                 await bot.send_photo(
                     chat_id=TG_CHAT_ID,
-                    photo=item['image'],
-                    caption=caption
+                    photo=image,
+                    caption=caption,
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("🔗 阅读原文", url=link)]
+                    ])
                 )
             else:
+                # 无图则纯文本推送
                 await bot.send_message(
                     chat_id=TG_CHAT_ID,
-                    text=caption
+                    text=f"{caption}\n\n{link}"
                 )
+
             sent += 1
             await asyncio.sleep(1)
         except Exception as e:

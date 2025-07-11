@@ -1,72 +1,51 @@
-import logging
 import requests
-import xml.etree.ElementTree as ET
 from bs4 import BeautifulSoup
+import time
 
-logger = logging.getLogger('news_crawler')
+# 设置目标新闻网站的 URL
+TARGET_URL = "https://www.bbc.com/news"
 
-# Google 新闻（简体中文）RSS
-RSS_FEED = "https://news.google.com/rss?hl=zh-CN&gl=CN&ceid=CN:zh-Hans"
-MIN_COUNT = 10
-
+# 设置请求头，模拟浏览器访问
 HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/115.0.0.0 Safari/537.36"
-    )
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
 }
 
-def fetch_news() -> list[dict]:
-    """
-    抓取 Google 新闻 RSS（中文），返回清洗后的标题、内容、图片、链接。
-    """
+def fetch_news(url):
     try:
-        resp = requests.get(RSS_FEED, headers=HEADERS, timeout=10)
-        resp.raise_for_status()
-        root = ET.fromstring(resp.content)
-    except Exception as e:
-        logger.error(f"RSS 请求失败 ({RSS_FEED}): {e}", exc_info=True)
-        return []
+        response = requests.get(url, headers=HEADERS, timeout=10)
+        response.raise_for_status()
+        return response.text
+    except requests.RequestException as e:
+        print(f"[ERROR] 请求失败: {e}")
+        return None
 
-    news = []
-    seen = set()
-    ns = {'media': 'http://search.yahoo.com/mrss/'}
+def parse_news(html):
+    soup = BeautifulSoup(html, "html.parser")
+    articles = []
 
-    for item in root.findall('.//item'):
-        title = item.findtext('title', '').strip()
-        link  = item.findtext('link',  '').strip()
-        if not title or not link or link in seen:
-            continue
+    # 根据 BBC 的结构提取新闻标题和链接
+    for item in soup.select("a.gs-c-promo-heading"):
+        title = item.get_text(strip=True)
+        link = item.get("href")
+        if link and not link.startswith("http"):
+            link = "https://www.bbc.com" + link
+        articles.append({"title": title, "link": link})
+    
+    return articles
 
-        # 图片
-        img = None
-        thumb = item.find('media:thumbnail', ns)
-        if thumb is not None and thumb.attrib.get('url'):
-            img = thumb.attrib['url']
-        else:
-            mcont = item.find('media:content', ns)
-            if mcont is not None and mcont.attrib.get('url'):
-                img = mcont.attrib['url']
+def main():
+    print("[INFO] 正在抓取新闻...")
+    html = fetch_news(TARGET_URL)
+    if html:
+        news_list = parse_news(html)
+        print(f"[INFO] 共抓取到 {len(news_list)} 条新闻：\n")
+        for idx, news in enumerate(news_list, 1):
+            print(f"{idx}. {news['title']}\n   链接: {news['link']}\n")
+    else:
+        print("[ERROR] 无法获取网页内容")
 
-        # 内容清洗
-        raw_desc = item.findtext('description', '').strip()
-        soup = BeautifulSoup(raw_desc, 'html.parser')
-        content = soup.get_text(separator=' ', strip=True)
-
-        news.append({
-            "title":   title,
-            "link":    link,
-            "image":   img,
-            "content": content
-        })
-        seen.add(link)
-        if len(news) >= MIN_COUNT:
-            break
-
-    logger.info(f"✅ Google 中文新闻抓到 {len(news)} 条")
-    return news
-
-def select_random_news(news_list: list[dict], count: int = 10) -> list[dict]:
-    import random
-    return random.sample(news_list, min(len(news_list), count))
+if __name__ == "__main__":
+    while True:
+        main()
+        print("[INFO] 10分钟后再次抓取...\n")
+        time.sleep(600)  # 每10分钟抓取一次

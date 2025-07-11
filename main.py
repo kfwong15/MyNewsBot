@@ -141,5 +141,5 @@ def main():
         logger.info("DeepSeek新闻助手正在运行...")
         application.run_polling()
 
-if name == "main":
+if __name__ == "__main__":
     main()

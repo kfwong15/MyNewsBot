@@ -1,35 +1,30 @@
-name: TheStar News Bot with DeepSeek AI
+name: TheStar News Bot
 
 on:
   schedule:
-    - cron: '0 */5 * * *'  # 每5小时运行一次
-  workflow_dispatch:       # 允许手动触发
+    - cron: '0 */5 * * *'
+  workflow_dispatch:
 
 jobs:
   crawl-and-send:
     runs-on: ubuntu-latest
-
     env:
       TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
       TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-      OPENAI_API_BASE: https://api.deepseek.com/v1
       GITHUB_ACTIONS: 'true'
 
     steps:
-    - name: ✅ Checkout code
-      uses: actions/checkout@v3
+    - uses: actions/checkout@v3
 
-    - name: 🐍 Set up Python
+    - name: Set up Python
       uses: actions/setup-python@v4
-      with:
-        python-version: '3.10'
+      with: python-version: '3.10'
 
-    - name: 📦 Install dependencies
+    - name: Install dependencies
       run: |
-        python -m pip install --upgrade pip
+        pip install --upgrade pip
         pip install -r requirements.txt
 
-    - name: 🚀 Run news bot
+    - name: Run news bot
       run: python main.py

@@ -22,9 +22,6 @@ GITHUB_REPO  = os.getenv('GITHUB_REPO')
 
 
 async def send_telegram_message(text: str, parse_mode=None) -> bool:
-    """
-    发送纯文本消息到 Telegram 群组
-    """
     bot = Bot(token=TG_BOT_TOKEN)
     try:
         await bot.send_message(chat_id=TG_CHAT_ID, text=text, parse_mode=parse_mode)
@@ -35,38 +32,29 @@ async def send_telegram_message(text: str, parse_mode=None) -> bool:
 
 
 async def send_news_to_telegram(news_list: list) -> int:
-    """
-    推送每条新闻到 Telegram，附带标题、内容、链接、图片（如有）
-    """
     bot = Bot(token=TG_BOT_TOKEN)
     sent = 0
 
     for item in news_list:
-        # 确保 title/link/content 都是字符串
         title   = html.escape(item.get('title', ''))
+        content = html.escape(item.get('content') or '')
         link    = html.escape(item.get('link', ''))
-        content = html.escape(item.get('content') or '')  # 如果 content 是 None，使用空串
-
-        # 构建 caption，包含标题、正文摘要和链接
         caption = f"{title}\n\n{content}\n\n{link}"
 
         try:
             if item.get('image'):
-                # 有图片时发送 photo
                 await bot.send_photo(
                     chat_id=TG_CHAT_ID,
                     photo=item['image'],
                     caption=caption
                 )
             else:
-                # 无图片则发送纯文本
                 await bot.send_message(
                     chat_id=TG_CHAT_ID,
                     text=caption
                 )
-
             sent += 1
-            await asyncio.sleep(1)  # 防止速率过快
+            await asyncio.sleep(1)
         except Exception as e:
             logger.error(f"推送失败: {e}", exc_info=True)
 
@@ -75,11 +63,10 @@ async def send_news_to_telegram(news_list: list) -> int:
 
 
 async def start_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    """
-    Telegram /start 命令：触发 GitHub Actions 抓取流程
-    """
     user = update.effective_user
-    await update.message.reply_html(rf"你好 {user.mention_html()}！正在触发新闻抓取…")
+    await update.message.reply_html(
+        rf"你好 {user.mention_html()}！正在触发新闻抓取…"
+    )
 
     headers = {'Authorization': f'token {GITHUB_TOKEN}'}
     payload = {'ref': 'main'}
@@ -100,8 +87,5 @@ async def start_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 
 def setup_handlers(app: Application):
-    """
-    注册 Telegram 命令处理器
-    """
     app.add_handler(CommandHandler("start", start_command))
     logger.info("Telegram handlers 注册完成")

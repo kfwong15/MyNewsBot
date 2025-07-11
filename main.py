@@ -1,10 +1,10 @@
-import os, asyncio, logging
+import os
+import asyncio
+import logging
 from datetime import datetime
 from dotenv import load_dotenv
-from modules import news_crawler
-from modules.telegram_bot import (
-    setup_handlers, send_news_to_telegram, send_telegram_message
-)
+from modules.news_crawler import fetch_news, select_random_news
+from modules.telegram_bot import send_telegram_message, send_news_to_telegram
 from telegram.ext import Application
 
 load_dotenv()
@@ -14,28 +14,40 @@ logging.basicConfig(
 )
 logger = logging.getLogger('main')
 
-async def send_status_report(status: str, details: str):
-    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    msg = f"📰 新闻机器人状态报告 ({ts})\n\n{status}\n\n{details}"
-    await send_telegram_message(msg, parse_mode=None)
-
-async def crawl_and_push():
+async def crawl_and_send():
     start = datetime.now()
-    news = news_crawler.fetch_news()
+    # ← 用 await 调用异步 fetch_news
+    news = await fetch_news()
     total = len(news)
-    selected = news_crawler.select_random_news(news, count=10)
+
+    if total == 0:
+        await send_telegram_message("❌ 抓取失败，未获取到任何新闻")
+        return
+
+    # 调试列表
+    debug = f"🔍 抓取到 {total} 条新闻：\n"
+    for i, n in enumerate(news, 1):
+        debug += f"{i}. {n['title']}\n{n['link']}\n\n"
+    await send_telegram_message(debug)
+
+    # 随机 10 条并推送
+    selected = select_random_news(news, 10)
     sent = await send_news_to_telegram(selected)
+
+    # 状态报告
     dur = (datetime.now() - start).total_seconds()
-    details = f"• 抓取总数: {total} 条\n• 推送: {sent} 条\n• 耗时: {dur:.2f} 秒"
-    status = "✅ 抓取并推送完成" if sent else "❌ 抓取或推送失败"
-    await send_status_report(status, details)
+    summary = (
+        f"📰 状态报告\n• 抓取: {total} 条\n"
+        f"• 推送: {sent} 条\n• 耗时: {dur:.1f} 秒"
+    )
+    await send_telegram_message(summary)
 
 def main():
-    if os.getenv("GITHUB_ACTIONS") == "true":
-        asyncio.run(crawl_and_push())
+    if os.getenv('GITHUB_ACTIONS') == 'true':
+        asyncio.run(crawl_and_send())
     else:
-        token = os.getenv("TG_BOT_TOKEN")
-        app = Application.builder().token(token).build()
+        app = Application.builder().token(os.getenv('TG_BOT_TOKEN')).build()
+        from modules.telegram_bot import setup_handlers
         setup_handlers(app)
         logger.info("Bot 启动中…")
         app.run_polling()

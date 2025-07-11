@@ -1,9 +1,9 @@
+# modules/news_crawler.py
+
 import requests
-from bs4 
-import BeautifulSoup
+from bs4 import BeautifulSoup      # ← 确保这样写
 import logging
-from urllib.parse 
-import urljoin
+from urllib.parse import urljoin
 
 logger = logging.getLogger('news_crawler')
 
@@ -27,7 +27,7 @@ def fetch_news():
                 continue
 
             soup = BeautifulSoup(resp.text, 'html.parser')
-            # 尝试常见选择器
+            # 按顺序尝试几个选择器
             for sel in (".listing__content", ".main-content-list__item", "article"):
                 items = soup.select(sel)
                 if items:
@@ -50,6 +50,7 @@ def fetch_news():
                 img_url = None
                 if img_tag and img_tag.get("src"):
                     img_url = urljoin(BASE_DOMAIN, img_tag["src"])
+
                 all_news.append({
                     "title": title,
                     "link": full_link,

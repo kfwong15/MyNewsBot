@@ -3,16 +3,17 @@
 import logging
 import requests
 import xml.etree.ElementTree as ET
-from urllib.parse import urljoin
 
 logger = logging.getLogger('news_crawler')
 
-# 光华日报官方 RSS
-RSS_FEED    = "https://www.kwongwah.com.my/feed"
-BASE_DOMAIN = "https://www.kwongwah.com.my"
-MIN_COUNT   = 10
+# Google News “Malaysia” 话题 RSS，包含当天最新当地新闻
+RSS_FEED = (
+    "https://news.google.com/rss/topics/"
+    "CAAqIggKIhxDQkFTRHdvSkwyMHZNRGx3Yld0MkVnSmxiaWdBUAE"
+    "?hl=en-MY&gl=MY&ceid=MY:en"
+)
+MIN_COUNT = 10
 
-# 防止 403，加浏览器 UA
 HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -23,33 +24,43 @@ HEADERS = {
 
 def fetch_news() -> list[dict]:
     """
-    抓取光华日报 RSS，返回最新 MIN_COUNT 条新闻（title, link, image, content）。
+    抓取 Google News Malaysia RSS，返回最新 MIN_COUNT 条新闻：
+    - title: 新闻标题
+    - link: 原始文章链接
+    - image: RSS 中的缩略图或 None
+    - content: RSS 提供的摘要
     """
     try:
         resp = requests.get(RSS_FEED, headers=HEADERS, timeout=10)
         resp.raise_for_status()
         root = ET.fromstring(resp.content)
-        logger.info(f"RSS 请求成功: {RSS_FEED}")
     except Exception as e:
         logger.error(f"RSS 请求失败 ({RSS_FEED}): {e}", exc_info=True)
         return []
 
     news = []
     seen = set()
+    # Google News RSS 里 <item> 多媒体标签在 media:thumbnail 或 media:content
+    ns = {'media': 'http://search.yahoo.com/mrss/'}
+
     for item in root.findall('.//item'):
-        title = item.findtext('title', default='').strip()
-        link  = item.findtext('link',  default='').strip()
+        title = item.findtext('title', '').strip()
+        link  = item.findtext('link',  '').strip()
         if not title or not link or link in seen:
             continue
 
-        # enclosure 中的图片
+        # 图片
         img = None
-        enc = item.find('enclosure')
-        if enc is not None and enc.attrib.get('url'):
-            img = urljoin(BASE_DOMAIN, enc.attrib['url'])
+        thumb = item.find('media:thumbnail', ns)
+        if thumb is not None and thumb.attrib.get('url'):
+            img = thumb.attrib['url']
+        else:
+            mcont = item.find('media:content', ns)
+            if mcont is not None and mcont.attrib.get('url'):
+                img = mcont.attrib['url']
 
-        # description 作为摘要
-        content = item.findtext('description', default='').strip()
+        # 摘要
+        content = item.findtext('description', '').strip()
 
         news.append({
             "title":   title,
@@ -61,9 +72,8 @@ def fetch_news() -> list[dict]:
         if len(news) >= MIN_COUNT:
             break
 
-    logger.info(f"✅ RSS 抓到 {len(news)} 条新闻")
+    logger.info(f"✅ Google News RSS 抓到 {len(news)} 条新闻")
     return news
-
 
 def select_random_news(news_list: list[dict], count: int = 10) -> list[dict]:
     import random

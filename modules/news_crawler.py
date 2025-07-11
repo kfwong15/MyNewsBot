@@ -1,115 +1,67 @@
 # modules/news_crawler.py
 
+import asyncio
 import logging
-import requests
-import xml.etree.ElementTree as ET
-from bs4 import BeautifulSoup
 from urllib.parse import urljoin
 
+from playwright.async_api import async_playwright
+
 logger = logging.getLogger('news_crawler')
-
-# 只用 Google News RSS 强制拿到至少 10 条
-GOOGLE_NEWS_RSS = (
-    "https://news.google.com/rss/"
-    "search?q=site:thestar.com.my/news/latest&hl=en-MY&gl=MY&ceid=MY:en"
-)
+BASE_URL    = "https://www.thestar.com.my/news/latest"
 BASE_DOMAIN = "https://www.thestar.com.my"
-MIN_COUNT = 10
-
-def fetch_google_rss() -> list[dict]:
-    """
-    调用 Google News RSS，拿最新 /news/latest 下的文章链接和标题。
-    最多返回 MIN_COUNT 条。
-    """
-    items = []
-    try:
-        resp = requests.get(GOOGLE_NEWS_RSS, timeout=10)
-        resp.raise_for_status()
-        root = ET.fromstring(resp.content)
-    except Exception as e:
-        logger.error(f"Google RSS 请求失败: {e}", exc_info=True)
-        return items
-
-    for node in root.findall('.//item'):
-        title = node.findtext('title', default='').strip()
-        link  = node.findtext('link',  default='').strip()
-        if title and link:
-            items.append({"title": title, "link": link})
-        if len(items) >= MIN_COUNT:
-            break
-
-    logger.info(f"✅ Google RSS 抓到 {len(items)} 条")
-    return items
+MIN_COUNT   = 10
 
 
-def get_article_details(url: str) -> tuple[str, str | None, str]:
-    """
-    请求文章详情页，解析:
-      - 标题: <meta property="og:title"> 或 <h1>
-      - 图片:  <meta property="og:image">
-      - 内容:  第一个长度 >50 的 <p> 作为摘要
-    """
-    title = ""
-    image = None
-    content = ""
+async def _fetch():
+    news = []
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+        page = await browser.new_page()
+        await page.goto(BASE_URL, wait_until='networkidle')
 
-    try:
-        resp = requests.get(url, timeout=10)
-        resp.raise_for_status()
-        soup = BeautifulSoup(resp.text, 'html.parser')
+        # 等待页面渲染出 article 元素
+        await page.wait_for_selector('article', timeout=15000)
+        items = await page.query_selector_all('article')
 
-        # 标题
-        ogt = soup.find('meta', property='og:title')
-        if ogt and ogt.get('content'):
-            title = ogt['content'].strip()
-        else:
-            h1 = soup.find('h1')
-            title = h1.get_text(strip=True) if h1 else ""
+        for art in items[:MIN_COUNT]:
+            # 标题（h1/h2/h3）
+            title_el = await art.query_selector('h1, h2, h3')
+            title = (await title_el.inner_text()).strip() if title_el else ""
 
-        # 图片
-        ogi = soup.find('meta', property='og:image')
-        if ogi and ogi.get('content'):
-            image = ogi['content'].strip()
+            # 链接 <a>
+            a_el = await art.query_selector('a[href]')
+            href = await a_el.get_attribute('href') if a_el else ""
+            link = href if href.startswith('http') else urljoin(BASE_DOMAIN, href)
 
-        # 内容摘要
-        for p in soup.find_all('p'):
-            txt = p.get_text(strip=True)
-            if len(txt) > 50:
-                content = txt
-                break
+            # 图片 <img>
+            img_el = await art.query_selector('img')
+            img = await img_el.get_attribute('src') if img_el else None
 
-    except Exception as e:
-        logger.warning(f"详情解析失败 {url}: {e}")
+            # 正文首段 <p>
+            p_el = await art.query_selector('p')
+            content = (await p_el.inner_text()).strip() if p_el else ""
 
-    return title, image, content
+            if title and link:
+                news.append({
+                    "title": title,
+                    "link": link,
+                    "image": img,
+                    "content": content
+                })
+
+        await browser.close()
+    logger.info(f"✅ Playwright 抓取到 {len(news)} 条新闻")
+    return news
 
 
 def fetch_news() -> list[dict]:
     """
-    主调用：先从 Google RSS 拉标题和链接，
-    再逐篇请求详情页补齐标题、配图和内容摘要。
+    同步接口：用 Playwright 渲染最新页面，提取每篇新闻的
+    标题、链接、配图和内容摘要。
     """
-    raw = fetch_google_rss()
-    news = []
-
-    for item in raw:
-        title, img, snippet = get_article_details(item['link'])
-        # 如果详情页没有抓到标题，用 RSS 标题兜底
-        final_title = title or item['title']
-        news.append({
-            "title": final_title,
-            "link": item['link'],
-            "image": img,
-            "content": snippet
-        })
-
-    logger.info(f"🔚 最终组装 {len(news)} 条新闻")
-    return news
+    return asyncio.run(_fetch())
 
 
 def select_random_news(news_list: list[dict], count: int = 10) -> list[dict]:
-    """
-    从列表中随机选若干条新闻（或全选）。
-    """
     import random
-    return random.sample(news_list, min(len(news_list), count))
+    return random.sample(news_list, min(count, len(news_list)))

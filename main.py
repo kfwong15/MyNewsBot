@@ -14,33 +14,38 @@ logging.basicConfig(
 )
 logger = logging.getLogger('main')
 
+
 async def crawl_and_send():
     start = datetime.now()
-    # ← 用 await 调用异步 fetch_news
-    news = await fetch_news()
+
+    # 1. 同步调用 fetch_news，已返回 list
+    news = fetch_news()
     total = len(news)
 
     if total == 0:
         await send_telegram_message("❌ 抓取失败，未获取到任何新闻")
         return
 
-    # 调试列表
+    # 2. 调试列表：标题 + 链接
     debug = f"🔍 抓取到 {total} 条新闻：\n"
     for i, n in enumerate(news, 1):
         debug += f"{i}. {n['title']}\n{n['link']}\n\n"
     await send_telegram_message(debug)
 
-    # 随机 10 条并推送
+    # 3. 随机取 10 条并推送
     selected = select_random_news(news, 10)
     sent = await send_news_to_telegram(selected)
 
-    # 状态报告
+    # 4. 状态报告
     dur = (datetime.now() - start).total_seconds()
     summary = (
-        f"📰 状态报告\n• 抓取: {total} 条\n"
-        f"• 推送: {sent} 条\n• 耗时: {dur:.1f} 秒"
+        f"📰 状态报告\n"
+        f"• 抓取: {total} 条\n"
+        f"• 推送: {sent} 条\n"
+        f"• 耗时: {dur:.1f} 秒"
     )
     await send_telegram_message(summary)
+
 
 def main():
     if os.getenv('GITHUB_ACTIONS') == 'true':
@@ -51,6 +56,7 @@ def main():
         setup_handlers(app)
         logger.info("Bot 启动中…")
         app.run_polling()
+
 
 if __name__ == "__main__":
     main()

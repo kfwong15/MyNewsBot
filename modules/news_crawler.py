@@ -5,7 +5,7 @@ import logging
 logger = logging.getLogger('news_crawler')
 
 NEWS_CATEGORIES = [
-    "latest", "nation", "metro", "business", "tech", "lifestyle", "sports", "world"
+    "latest", "nation", "metro", "business", "tech", "lifestyle", "world"
 ]
 
 BASE_URL = "https://www.thestar.com.my/news/"
@@ -33,7 +33,8 @@ def fetch_news():
                     news_item = {
                         "title": title_tag.get_text(strip=True),
                         "link": link_tag['href'],
-                        "image": img_tag['src'] if img_tag else None
+                        "image": img_tag['src'] if img_tag else None,
+                        "category": category
                     }
                     all_news.append(news_item)
 
@@ -43,6 +44,6 @@ def fetch_news():
     logger.info(f"共抓取 {len(all_news)} 条新闻")
     return all_news
 
-def select_random_news(news_list, count=5):
+def select_random_news(news_list, count=10):
     import random
     return random.sample(news_list, min(count, len(news_list)))

@@ -1,64 +1,62 @@
 # modules/news_crawler.py
 
 import requests
-from bs4 import BeautifulSoup
+import xml.etree.ElementTree as ET
 import logging
 from urllib.parse import urljoin
 
 logger = logging.getLogger('news_crawler')
 
-BASE_DOMAIN = "https://www.thestar.com.my"
-LATEST_PATH = "/news/latest/"  # 注意要带斜杠
+# RSS 源地址
+RSS_FEED_URL = "https://www.thestar.com.my/rss/latest.rss"
 MIN_COUNT = 10
 
 def fetch_news():
     """
-    抓取最新栏目至少 MIN_COUNT 条新闻（title + link + 可选 image）。
-    不用类名匹配，直接根据 href 前缀过滤 <a> 标签。
+    从 The Star 官方 RSS 提取至少 MIN_COUNT 条最新新闻。
     """
-    url = urljoin(BASE_DOMAIN, LATEST_PATH)
-    logger.info(f"▶ 抓取最新新闻列表: {url}")
-
     try:
-        resp = requests.get(url, timeout=10)
-        logger.info(f"  状态码: {resp.status_code}")
+        resp = requests.get(RSS_FEED_URL, timeout=10)
         resp.raise_for_status()
+        logger.info(f"▶ RSS 请求成功: {RSS_FEED_URL}")
     except Exception as e:
-        logger.error(f"HTTP 请求失败: {e}", exc_info=True)
+        logger.error(f"RSS 请求失败: {e}", exc_info=True)
         return []
 
-    soup = BeautifulSoup(resp.text, 'html.parser')
-    seen = set()
     news_list = []
+    seen = set()
 
-    # 遍历所有 <a>，挑出 /news/latest/ 开头的链接
-    for a in soup.find_all("a", href=True):
-        href = a['href']
-        if not href.startswith(LATEST_PATH):
+    # 解析 RSS XML
+    root = ET.fromstring(resp.content)
+    # 找到所有 <item>
+    for item in root.findall('.//item'):
+        title = item.findtext('title', default='').strip()
+        link = item.findtext('link', default='').strip()
+        if not title or not link or link in seen:
             continue
 
-        full_link = urljoin(BASE_DOMAIN, href)
-        title = a.get_text(strip=True)
-        if not title or full_link in seen:
-            continue
-
-        # 尝试找图片
-        img_tag = a.find("img")
+        # 尝试找图片：<enclosure url="...">
         img_url = None
-        if img_tag and img_tag.get("src"):
-            img_url = urljoin(BASE_DOMAIN, img_tag["src"])
+        enclosure = item.find('enclosure')
+        if enclosure is not None and 'url' in enclosure.attrib:
+            img_url = urljoin(link, enclosure.attrib['url'])
+        else:
+            # 尝试 media:content
+            media = item.find('{http://search.yahoo.com/mrss/}content')
+            if media is not None and 'url' in media.attrib:
+                img_url = urljoin(link, media.attrib['url'])
 
         news_list.append({
             "title": title,
-            "link": full_link,
+            "link": link,
             "image": img_url
         })
-        seen.add(full_link)
+        seen.add(link)
 
         if len(news_list) >= MIN_COUNT:
             break
 
-    logger.info(f"✅ 抓取到 {len(news_list)} 条最新新闻")
+    logger.info(f"✅ 从 RSS 抓取到 {len(news_list)} 条新闻")
     return news_list
 
 def select_random_news(news_list, count=10):

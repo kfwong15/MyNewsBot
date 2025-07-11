@@ -1,5 +1,3 @@
-# modules/news_crawler.py
-
 import re
 import json
 import logging
@@ -24,7 +22,6 @@ ARTICLE_REGEX   = re.compile(
 
 
 def fetch_rss(feed_url: str) -> list:
-    """抓取 RSS（官方或 Google News），返回最多 MIN_COUNT 条新闻项。"""
     items = []
     seen = set()
     try:
@@ -41,7 +38,6 @@ def fetch_rss(feed_url: str) -> list:
         if not title or not link or link in seen:
             continue
 
-        # 从 <description> 中提取图片（Google News RSS）
         img = None
         desc = item.findtext('description', '')
         if desc:
@@ -50,15 +46,13 @@ def fetch_rss(feed_url: str) -> list:
             if img_tag and img_tag.get('src'):
                 img = img_tag['src']
 
-        # 官方 RSS 中可能包含 <enclosure> 或 media:content
-        if not img:
-            enc = item.find('enclosure')
-            if enc is not None and 'url' in enc.attrib:
-                img = enc.attrib['url']
-            else:
-                m = item.find('{http://search.yahoo.com/mrss/}content')
-                if m is not None and 'url' in m.attrib:
-                    img = m.attrib['url']
+        enc = item.find('enclosure')
+        if not img and enc is not None and 'url' in enc.attrib:
+            img = enc.attrib['url']
+        else:
+            m = item.find('{http://search.yahoo.com/mrss/}content')
+            if not img and m is not None and 'url' in m.attrib:
+                img = m.attrib['url']
 
         items.append({"title": title, "link": link, "image": img})
         seen.add(link)
@@ -70,7 +64,6 @@ def fetch_rss(feed_url: str) -> list:
 
 
 def fetch_jsonld() -> list:
-    """解析列表页中的 JSON-LD ItemList，作为 RSS 失败后的后备。"""
     out = []
     try:
         resp = requests.get(LISTING_PAGE, timeout=10)
@@ -103,7 +96,6 @@ def fetch_jsonld() -> list:
 
 
 def fetch_by_regex() -> list:
-    """用正则抽取列表页文章 URL，再请求详情页抓 og:title 和 og:image。"""
     out = []
     try:
         resp = requests.get(LISTING_PAGE, timeout=10)
@@ -129,12 +121,10 @@ def fetch_by_regex() -> list:
         except Exception:
             continue
 
-        # 标题优先取 OpenGraph 元标签
         tag_t = sp.find('meta', property='og:title')
         title = (tag_t['content'].strip() if tag_t and tag_t.get('content') 
                  else sp.find('h1').get_text(strip=True) if sp.find('h1') 
                  else '')
-        # 图片优先取 OpenGraph 元标签
         tag_i = sp.find('meta', property='og:image')
         img = tag_i['content'].strip() if tag_i and tag_i.get('content') else None
 
@@ -146,7 +136,6 @@ def fetch_by_regex() -> list:
 
 
 def get_og_image(url: str) -> str | None:
-    """单篇文章详情页补抓 OpenGraph 图片，确保每条新闻有图。"""
     try:
         r = requests.get(url, timeout=5)
         r.raise_for_status()
@@ -159,15 +148,21 @@ def get_og_image(url: str) -> str | None:
     return None
 
 
+def get_article_content(url: str) -> str | None:
+    try:
+        r = requests.get(url, timeout=5)
+        r.raise_for_status()
+        soup = BeautifulSoup(r.text, 'html.parser')
+        for tag in soup.find_all('p'):
+            text = tag.get_text(strip=True)
+            if text and len(text) > 50:
+                return text
+    except Exception as e:
+        logger.warning(f"获取正文失败: {url} – {e}")
+    return None
+
+
 def fetch_news() -> list:
-    """
-    主抓取流程：
-    1. 官方 RSS
-    2. Google News RSS
-    3. JSON-LD
-    4. 正则抽 URL + 详情页
-    最后对无图新闻一一补抓 OpenGraph 图片。
-    """
     out = fetch_rss(OFFICIAL_RSS)
     if len(out) < MIN_COUNT:
         more = fetch_rss(GOOGLE_NEWS_RSS)
@@ -196,10 +191,10 @@ def fetch_news() -> list:
             if m['link'] not in links:
                 out.append(m)
 
-    # 补抓缺失的 OG 图
     for item in out:
         if not item.get('image'):
             item['image'] = get_og_image(item['link'])
+        item['content'] = get_article_content(item['link'])
 
     logger.info(
         f"🔚 最终共抓到 {len(out)} 条新闻，带图 {sum(1 for i in out if i.get('image'))} 条"
@@ -208,6 +203,5 @@ def fetch_news() -> list:
 
 
 def select_random_news(news_list: list, count: int = 10) -> list:
-    """从抓到的新闻中随机选取 count 条。"""
     import random
     return random.sample(news_list, min(len(news_list), count))

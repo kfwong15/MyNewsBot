@@ -1,71 +1,65 @@
 # modules/news_crawler.py
 
 import requests
-from bs4 import BeautifulSoup      # ← 确保这样写
+from bs4 import BeautifulSoup
 import logging
 from urllib.parse import urljoin
 
 logger = logging.getLogger('news_crawler')
 
-NEWS_CATEGORIES = [
-    "latest", "nation", "metro", "business", "tech", "lifestyle", "world"
-]
-
 BASE_DOMAIN = "https://www.thestar.com.my"
-BASE_PATH = "/news/"
-MIN_TOTAL_NEWS = 10
+LATEST_PATH = "/news/latest/"  # 注意要带斜杠
+MIN_COUNT = 10
 
 def fetch_news():
-    all_news = []
-    for category in NEWS_CATEGORIES:
-        url = urljoin(BASE_DOMAIN, BASE_PATH + category)
-        logger.info(f"抓取分类 {category}: {url}")
-        try:
-            resp = requests.get(url, timeout=10)
-            logger.info(f" 状态码: {resp.status_code}")
-            if resp.status_code != 200:
-                continue
+    """
+    抓取最新栏目至少 MIN_COUNT 条新闻（title + link + 可选 image）。
+    不用类名匹配，直接根据 href 前缀过滤 <a> 标签。
+    """
+    url = urljoin(BASE_DOMAIN, LATEST_PATH)
+    logger.info(f"▶ 抓取最新新闻列表: {url}")
 
-            soup = BeautifulSoup(resp.text, 'html.parser')
-            # 按顺序尝试几个选择器
-            for sel in (".listing__content", ".main-content-list__item", "article"):
-                items = soup.select(sel)
-                if items:
-                    logger.info(f"  使用 `{sel}` 找到 {len(items)} 篇文章")
-                    break
-            else:
-                logger.warning("  未匹配到任何文章节点")
-                continue
+    try:
+        resp = requests.get(url, timeout=10)
+        logger.info(f"  状态码: {resp.status_code}")
+        resp.raise_for_status()
+    except Exception as e:
+        logger.error(f"HTTP 请求失败: {e}", exc_info=True)
+        return []
 
-            for art in items:
-                link_tag = art.find("a", href=True)
-                title_tag = art.find(["h2", "h3", "h4"])
-                img_tag = art.find("img")
-                if not link_tag or not title_tag:
-                    continue
+    soup = BeautifulSoup(resp.text, 'html.parser')
+    seen = set()
+    news_list = []
 
-                href = link_tag["href"]
-                full_link = urljoin(BASE_DOMAIN, href)
-                title = title_tag.get_text(strip=True)
-                img_url = None
-                if img_tag and img_tag.get("src"):
-                    img_url = urljoin(BASE_DOMAIN, img_tag["src"])
+    # 遍历所有 <a>，挑出 /news/latest/ 开头的链接
+    for a in soup.find_all("a", href=True):
+        href = a['href']
+        if not href.startswith(LATEST_PATH):
+            continue
 
-                all_news.append({
-                    "title": title,
-                    "link": full_link,
-                    "image": img_url,
-                    "category": category
-                })
+        full_link = urljoin(BASE_DOMAIN, href)
+        title = a.get_text(strip=True)
+        if not title or full_link in seen:
+            continue
 
-            if len(all_news) >= MIN_TOTAL_NEWS:
-                break
+        # 尝试找图片
+        img_tag = a.find("img")
+        img_url = None
+        if img_tag and img_tag.get("src"):
+            img_url = urljoin(BASE_DOMAIN, img_tag["src"])
 
-        except Exception as e:
-            logger.error(f"分类 {category} 抓取失败: {e}", exc_info=True)
+        news_list.append({
+            "title": title,
+            "link": full_link,
+            "image": img_url
+        })
+        seen.add(full_link)
 
-    logger.info(f"共抓取到 {len(all_news)} 条新闻")
-    return all_news
+        if len(news_list) >= MIN_COUNT:
+            break
+
+    logger.info(f"✅ 抓取到 {len(news_list)} 条最新新闻")
+    return news_list
 
 def select_random_news(news_list, count=10):
     import random

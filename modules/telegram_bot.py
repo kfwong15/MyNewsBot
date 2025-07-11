@@ -1,3 +1,5 @@
+# modules/telegram_bot.py
+
 import os
 import logging
 import asyncio
@@ -7,14 +9,17 @@ from telegram import Bot, Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 
 load_dotenv()
-logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-                    level=logging.INFO)
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
 logger = logging.getLogger('telegram_bot')
 
 TG_BOT_TOKEN = os.getenv('TG_BOT_TOKEN')
 TG_CHAT_ID   = os.getenv('TG_CHAT_ID')
 GITHUB_TOKEN = os.getenv('GITHUB_TOKEN')
 GITHUB_REPO  = os.getenv('GITHUB_REPO')
+
 
 async def send_telegram_message(text: str, parse_mode=None) -> bool:
     """
@@ -28,6 +33,7 @@ async def send_telegram_message(text: str, parse_mode=None) -> bool:
         logger.error(f"send_message 失败: {e}", exc_info=True)
         return False
 
+
 async def send_news_to_telegram(news_list: list) -> int:
     """
     推送每条新闻到 Telegram，附带标题、内容、链接、图片（如有）
@@ -36,31 +42,37 @@ async def send_news_to_telegram(news_list: list) -> int:
     sent = 0
 
     for item in news_list:
-        title   = html.escape(item['title'])
-        content = html.escape(item.get('content', ''))
-        link    = html.escape(item['link'])
+        # 确保 title/link/content 都是字符串
+        title   = html.escape(item.get('title', ''))
+        link    = html.escape(item.get('link', ''))
+        content = html.escape(item.get('content') or '')  # 如果 content 是 None，使用空串
 
+        # 构建 caption，包含标题、正文摘要和链接
         caption = f"{title}\n\n{content}\n\n{link}"
 
         try:
             if item.get('image'):
+                # 有图片时发送 photo
                 await bot.send_photo(
                     chat_id=TG_CHAT_ID,
                     photo=item['image'],
                     caption=caption
                 )
             else:
+                # 无图片则发送纯文本
                 await bot.send_message(
                     chat_id=TG_CHAT_ID,
                     text=caption
                 )
+
             sent += 1
-            await asyncio.sleep(1)
+            await asyncio.sleep(1)  # 防止速率过快
         except Exception as e:
             logger.error(f"推送失败: {e}", exc_info=True)
 
     logger.info(f"✅ 成功推送 {sent}/{len(news_list)} 条新闻")
     return sent
+
 
 async def start_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     """
@@ -71,17 +83,21 @@ async def start_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     headers = {'Authorization': f'token {GITHUB_TOKEN}'}
     payload = {'ref': 'main'}
-    url = f"https://api.github.com/repos/{GITHUB_REPO}/actions/workflows/thestar_news_bot.yml/dispatches"
+    url = (
+        f"https://api.github.com/repos/{GITHUB_REPO}"
+        "/actions/workflows/thestar_news_bot.yml/dispatches"
+    )
 
     try:
         r = __import__('requests').post(url, headers=headers, json=payload)
         if r.status_code == 204:
-            await update.message.reply_text("✅ 已触发 GitHub Actions，稍后将推送最新新闻。")
+            await update.message.reply_text("✅ 已触发，稍后将推送最新新闻。")
         else:
             await update.message.reply_text(f"❌ 触发失败：{r.status_code}")
     except Exception as e:
         await update.message.reply_text(f"❌ 异常：{e}")
         logger.exception("GitHub Dispatch 出错")
+
 
 def setup_handlers(app: Application):
     """

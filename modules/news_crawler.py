@@ -6,7 +6,7 @@ from bs4 import BeautifulSoup
 logger = logging.getLogger('news_crawler')
 
 # Google 新闻（中文）RSS，包含马来西亚新闻
-RSS_FEED = "https://www.orientaldaily.com.my/rss/1"
+RSS_FEED = "https://www.orientaldaily.com.my/feeds"
 MIN_COUNT = 10
 
 HEADERS = {

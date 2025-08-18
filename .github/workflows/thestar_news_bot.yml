@@ -2,7 +2,7 @@ name: TheStar News Bot
 
 on:
   schedule:
-    - cron: '0 */5 * * *'
+    - cron: '0 9,21 * * *'
   workflow_dispatch:
 
 jobs:

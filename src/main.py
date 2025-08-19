@@ -18,7 +18,20 @@ def build_message(title: str, url: str, published: str | None) -> str:
 def main() -> int:
     logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 
-    max_items_total = int(os.getenv("MAX_ITEMS_PER_RUN", "10"))
+    def get_int_env(name: str, default_value: int) -> int:
+        raw = os.getenv(name)
+        if raw is None:
+            return default_value
+        raw = raw.strip()
+        if not raw:
+            return default_value
+        try:
+            return int(raw)
+        except Exception:
+            logging.warning("Invalid %s=%r; fallback to %d", name, raw, default_value)
+            return default_value
+
+    max_items_total = get_int_env("MAX_ITEMS_PER_RUN", 10)
     state = StateStore()
     state.load()
     tg = TelegramClient()
